@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 520" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#a97c2c"/></marker>
+    <style>.b{fill:#fff;stroke:#e1d6bd;stroke-width:2}.t{font-size:20px;font-weight:700;fill:#1c1a14}.s{font-size:14px;fill:#6b6455}.l{stroke:#a97c2c;stroke-width:2.5;fill:none;marker-end:url(#a)}.c{font-size:13px;fill:#a97c2c;font-weight:700}</style>
+  </defs>
+  <rect width="1200" height="520" rx="20" fill="#f6f3ec"/>
+  <g>
+    <rect class="b" x="30" y="40" width="250" height="110" rx="16"/><text class="t" x="50" y="78">Trader's PC / Mac</text><text class="s" x="50" y="104">MetaTrader 5 terminal</text><text class="s" x="50" y="126">logged in to broker</text>
+    <rect class="b" x="30" y="190" width="250" height="120" rx="16"/><text class="t" x="50" y="228">TradeIQ EA (MQL5)</text><text class="s" x="50" y="254">reads balance, equity,</text><text class="s" x="50" y="274">positions &amp; deal history</text>
+    <rect class="b" x="30" y="350" width="250" height="120" rx="16"/><text class="t" x="50" y="388">Local bridge (Python)</text><text class="s" x="50" y="414">background service,</text><text class="s" x="50" y="434">forwards EA files over HTTPS</text>
+  </g>
+  <g>
+    <rect class="b" x="400" y="40" width="360" height="430" rx="18"/>
+    <text class="t" x="425" y="80">FastAPI backend</text>
+    <rect x="425" y="100" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="440" y="130">Auth &amp; sessions</text>
+    <rect x="585" y="100" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="600" y="130">Accounts API</text>
+    <rect x="425" y="160" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="440" y="190">Device connector</text>
+    <rect x="585" y="160" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="600" y="190">Detection / claim</text>
+    <rect x="425" y="220" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="440" y="250">Journal &amp; plans</text>
+    <rect x="585" y="220" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="600" y="250">Dashboard / analytics</text>
+    <rect x="425" y="280" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="440" y="310">Risk profiles</text>
+    <rect x="585" y="280" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="600" y="310">Admin &amp; settings</text>
+    <rect x="425" y="340" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="440" y="370">TradingView alerts</text>
+    <rect x="585" y="340" width="150" height="48" rx="10" fill="#f6efe0"/><text class="s" x="600" y="370">Installers (Mac/Win)</text>
+    <text class="s" x="425" y="440">77 REST endpoints · Alembic migrations</text>
+  </g>
+  <g>
+    <rect class="b" x="880" y="40" width="290" height="140" rx="16"/><text class="t" x="900" y="78">Next.js web app</text><text class="s" x="900" y="104">React + TypeScript</text><text class="s" x="900" y="126">Journal · Plans · Reviews</text><text class="s" x="900" y="148">Analytics · Accounts · /admin</text>
+    <rect class="b" x="880" y="330" width="290" height="140" rx="16"/><text class="t" x="900" y="368">PostgreSQL</text><text class="s" x="900" y="394">31 tables, native UUIDs</text><text class="s" x="900" y="416">encrypted secrets, audit log</text><text class="s" x="900" y="438">per-user data isolation</text>
+  </g>
+  <path class="l" d="M155 150V190"/><path class="l" d="M155 310V350"/>
+  <path class="l" d="M280 410H400"/><text class="c" x="300" y="400">HTTPS push</text>
+  <path class="l" d="M760 110H880"/><text class="c" x="790" y="100">REST /api/v1</text>
+  <path class="l" d="M760 400H880"/><text class="c" x="790" y="390">SQL</text>
+</svg>

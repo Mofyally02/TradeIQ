@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#a97c2c"/></marker>
+    <style>.n{fill:#a97c2c}.nn{fill:#fff;font-size:20px;font-weight:800}.t{font-size:18px;font-weight:700;fill:#1c1a14}.s{font-size:14px;fill:#6b6455}.l{stroke:#a97c2c;stroke-width:2.5;fill:none;marker-end:url(#a)}</style>
+  </defs>
+  <rect width="1200" height="300" rx="20" fill="#f6f3ec"/>
+  <g transform="translate(30,40)">
+    <rect x="0" y="0" width="200" height="200" rx="16" fill="#fff" stroke="#e1d6bd" stroke-width="2"/><circle class="n" cx="34" cy="34" r="20"/><text class="nn" x="34" y="41" text-anchor="middle">1</text>
+    <text class="t" x="16" y="92">Add account</text><text class="s" x="16" y="118">Enter MT5 login,</text><text class="s" x="16" y="138">server &amp; nickname</text>
+  </g>
+  <g transform="translate(260,40)">
+    <rect width="200" height="200" rx="16" fill="#fff" stroke="#e1d6bd" stroke-width="2"/><circle class="n" cx="34" cy="34" r="20"/><text class="nn" x="34" y="41" text-anchor="middle">2</text>
+    <text class="t" x="16" y="92">Run setup once</text><text class="s" x="16" y="118">One-click Mac / Windows</text><text class="s" x="16" y="138">installer (auto-detected)</text>
+  </g>
+  <g transform="translate(490,40)">
+    <rect width="200" height="200" rx="16" fill="#fff" stroke="#e1d6bd" stroke-width="2"/><circle class="n" cx="34" cy="34" r="20"/><text class="nn" x="34" y="41" text-anchor="middle">3</text>
+    <text class="t" x="16" y="92">Log in to MT5</text><text class="s" x="16" y="118">EA + bridge run in</text><text class="s" x="16" y="138">the background</text>
+  </g>
+  <g transform="translate(720,40)">
+    <rect width="200" height="200" rx="16" fill="#fff" stroke="#e1d6bd" stroke-width="2"/><circle class="n" cx="34" cy="34" r="20"/><text class="nn" x="34" y="41" text-anchor="middle">4</text>
+    <text class="t" x="16" y="92">Auto-connect</text><text class="s" x="16" y="118">First push matches the</text><text class="s" x="16" y="138">account and links it</text>
+  </g>
+  <g transform="translate(950,40)">
+    <rect width="220" height="200" rx="16" fill="#e8f1e6" stroke="#9cc596" stroke-width="2"/><circle cx="34" cy="34" r="20" fill="#2f7d3b"/><text class="nn" x="34" y="41" text-anchor="middle">5</text>
+    <text class="t" x="16" y="92">Account connected</text><text class="s" x="16" y="118">Balance, equity, positions</text><text class="s" x="16" y="138">&amp; history stream in</text>
+  </g>
+  <path class="l" d="M230 140H260"/><path class="l" d="M460 140H490"/><path class="l" d="M690 140H720"/><path class="l" d="M920 140H950"/>
+  <text class="s" x="30" y="275">Unknown logins seen later appear as a "Detected account" prompt: Connect (re-enter login &amp; server to confirm) or Not now.</text>
+</svg>

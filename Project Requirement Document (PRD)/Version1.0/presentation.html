@@ -1,0 +1,104 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>TradeIQ Journal 1.0</title>
+<style>
+@page{size:1280px 720px;margin:0}
+*{box-sizing:border-box}
+body{margin:0;font-family:Helvetica,Arial,sans-serif;color:#1c1a14}
+.s{width:1280px;height:720px;page-break-after:always;position:relative;overflow:hidden;background:#f6f3ec;padding:56px 72px}
+.dark{background:linear-gradient(135deg,#14160f,#2a2418);color:#fff}
+h1{font-size:56px;margin:0 0 8px}h2{font-size:38px;margin:0 0 6px}
+.kick{color:#a97c2c;font-weight:700;letter-spacing:.14em;font-size:14px;text-transform:uppercase;margin-bottom:10px}
+p,li{font-size:20px;line-height:1.5;color:#4a4437}.dark p,.dark li{color:#e9dcc0}
+.grid{display:grid;gap:20px}.g3{grid-template-columns:repeat(3,1fr)}.g2{grid-template-columns:1fr 1fr}.g4{grid-template-columns:repeat(4,1fr)}
+.card{background:#fff;border:2px solid #e1d6bd;border-radius:18px;padding:22px}
+.card h3{margin:0 0 8px;font-size:22px}.card p{font-size:17px;margin:0}
+.big{font-size:54px;font-weight:800;color:#a97c2c}.lab{font-size:15px;color:#6b6455}
+img.f{width:100%;display:block;margin-top:14px}
+.ok{color:#2f7d3b;font-weight:700}.warn{color:#b9741a;font-weight:700}
+.foot{position:absolute;left:72px;bottom:24px;font-size:13px;color:#9a917c}
+.pill{display:inline-block;background:#d6a84f;color:#14160f;font-weight:800;border-radius:20px;padding:8px 20px;font-size:18px}
+table{border-collapse:collapse;width:100%}td{padding:12px 14px;border-bottom:1px solid #e1d6bd;font-size:19px}
+ul{margin:8px 0 0;padding-left:24px}
+</style></head><body>
+
+<section class="s dark" style="padding:0"><img src="assets/hero.svg" style="width:1280px;height:400px;display:block">
+<div style="padding:40px 72px"><p style="font-size:24px">Product Requirements &amp; Status · Phase 1 · Release 1.0</p>
+<p>Journal built around the decision, connected to MetaTrader 5 automatically.</p></div></section>
+
+<section class="s"><div class="kick">Vision</div><h2>Record the decision, not only the result</h2>
+<div class="grid g3" style="margin-top:34px">
+<div class="card"><h3>Market facts</h3><p>What the terminal reported: balance, equity, positions and deals synced from MT5.</p></div>
+<div class="card"><h3>Trader intent</h3><p>What was planned: versioned trade plans created before execution.</p></div>
+<div class="card"><h3>Behaviour</h3><p>What was done and learned: timestamped journal sections and post-trade reviews.</p></div></div>
+<p style="margin-top:34px">Promise: preserve decision timing, reconcile records, and explain process quality before interpreting profit.</p>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Release 1.0 at a glance</div><h2>What was built</h2>
+<div class="grid g4" style="margin-top:30px">
+<div class="card"><div class="big">77</div><div class="lab">REST endpoints</div></div>
+<div class="card"><div class="big">31</div><div class="lab">database tables</div></div>
+<div class="card"><div class="big">13</div><div class="lab">migrations</div></div>
+<div class="card"><div class="big">33</div><div class="lab">passing backend tests</div></div></div>
+<div class="grid g3" style="margin-top:24px">
+<div class="card"><h3>Frontend</h3><p>Next.js · React · TypeScript</p></div>
+<div class="card"><h3>Backend</h3><p>FastAPI · SQLAlchemy · Alembic</p></div>
+<div class="card"><h3>Data &amp; MT5</h3><p>PostgreSQL · MQL5 EA · Python bridge · MetaApi (optional)</p></div></div>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Architecture</div><h2>How the pieces connect</h2>
+<img class="f" src="assets/architecture.svg" style="height:540px;object-fit:contain"><div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Journal workflow</div><h2>From plan to review</h2>
+<div class="grid g4" style="margin-top:34px">
+<div class="card"><h3>1 · Plan</h3><p>Capture an idea before execution; versions kept; discard marks no exposure.</p></div>
+<div class="card"><h3>2 · Execute</h3><p>Trades arrive from MT5 or are logged manually with entry, stop and target.</p></div>
+<div class="card"><h3>3 · Journal</h3><p>Setup, emotion, execution and management notes, each timestamped.</p></div>
+<div class="card"><h3>4 · Review</h3><p>Plan adherence, learning and next action; review coverage tracked.</p></div></div>
+<ul style="margin-top:34px"><li>Search and outcome filters, CSV export of the current view</li><li>Section content accepts objects and lists (timeline error fixed)</li></ul>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Dashboard &amp; analytics</div><h2>Process-first performance</h2>
+<div class="grid g2" style="margin-top:30px">
+<div class="card"><h3>Overview</h3><ul><li>Net P&amp;L, win rate, profit factor</li><li>Review coverage ring</li><li>All-time, 7/30/90-day, custom ranges</li></ul></div>
+<div class="card"><h3>Analytics</h3><ul><li>Equity curve</li><li>By strategy and session</li><li>P&amp;L calendar: month and year, timezone-aware</li></ul></div></div>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Automatic MT5 connection</div><h2>Add, log in, done</h2>
+<img class="f" src="assets/connect-flow.svg" style="margin-top:30px">
+<p style="margin-top:24px">The installer runs once per computer; its connector secret is stable, so new accounts need no reinstall.</p>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Multiple accounts</div><h2>Independent views per account</h2>
+<img class="f" src="assets/multi-account.svg" style="margin-top:20px">
+<ul><li>New logins are detected and offered as Connect / Not now, with login and server confirmation</li><li>Plans and trades are tagged to a single account when one is in view</li></ul>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Admin &amp; integrations</div><h2>Control and flexibility</h2>
+<div class="grid g3" style="margin-top:30px">
+<div class="card"><h3>Admin panel /admin</h3><p>Platform stats, default MT5 method, per-user overrides, user and account search.</p></div>
+<div class="card"><h3>MT5 methods</h3><p>EA + bridge (primary, handles WebRequest error 4014). MetaApi hosted sync as an alternative.</p></div>
+<div class="card"><h3>TradingView</h3><p>Per-user webhook token; alerts matched to trades or dismissed.</p></div></div>
+<div class="card" style="margin-top:20px"><h3>Security</h3><p>Session-cookie auth, per-user isolation, encrypted broker credentials and connector secrets, hashed webhook secrets, audit log.</p></div>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Quality status</div><h2>What is verified</h2>
+<table style="margin-top:24px">
+<tr><td>Backend tests</td><td class="ok">33 passing</td></tr>
+<tr><td>Frontend type check and lint</td><td class="ok">Clean</td></tr>
+<tr><td>Live MT5 on macOS (EA, bridge, auto-connect)</td><td class="ok">Verified with two demo accounts</td></tr>
+<tr><td>Windows installer</td><td class="warn">Implemented, not validated on Windows</td></tr>
+<tr><td>MetaApi hosted sync</td><td class="warn">Blocked by MetaApi billing</td></tr>
+<tr><td>Production deployment</td><td class="warn">Not started</td></tr></table>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s"><div class="kick">Known limitations</div><h2>Honest boundaries of 1.0</h2>
+<ul style="margin-top:20px"><li>PUBLIC_API_URL defaults to localhost; real users need public HTTPS</li><li>One MT5 terminal = one live account at a time; others go offline after 10 minutes</li><li>Account-rule evaluation, screenshot object storage and live UI updates are unfinished</li><li>No rate limiting or password recovery yet</li><li>Imported deals are not fully reconciled into journal episodes</li></ul>
+<div class="foot">TradeIQ Journal · Release 1.0</div></section>
+
+<section class="s dark"><div class="kick">Roadmap</div><h2>Phase 2</h2>
+<div class="grid g3" style="margin-top:30px">
+<div class="card" style="background:#3a3322;border-color:#5a4d30"><h3 style="color:#d6a84f">Ship</h3><p style="color:#e9dcc0">Public HTTPS deployment, managed PostgreSQL, monitoring, backups; validated and signed installers.</p></div>
+<div class="card" style="background:#3a3322;border-color:#5a4d30"><h3 style="color:#d6a84f">Protect</h3><p style="color:#e9dcc0">Rule engine for drawdown and daily loss, auth hardening, rate limits, recovery.</p></div>
+<div class="card" style="background:#3a3322;border-color:#5a4d30"><h3 style="color:#d6a84f">Learn</h3><p style="color:#e9dcc0">Deal-to-journal reconciliation, screenshots, live updates, AI-assisted review summaries.</p></div></div>
+<p style="margin-top:50px"><span class="pill">Release 1.0</span> &nbsp; Thank you.</p></section>
+</body></html>

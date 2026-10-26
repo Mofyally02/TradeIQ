@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" font-family="Helvetica, Arial, sans-serif">
+  <defs><style>.t{font-size:18px;font-weight:700;fill:#1c1a14}.s{font-size:14px;fill:#6b6455}.card{fill:#fff;stroke:#e1d6bd;stroke-width:2}</style></defs>
+  <rect width="1200" height="360" rx="20" fill="#f6f3ec"/>
+  <text class="t" x="40" y="48">Accounts panel: independent view toggles</text>
+  <g transform="translate(40,70)">
+    <rect width="1120" height="64" rx="32" fill="#fff" stroke="#e1d6bd" stroke-width="2"/>
+    <rect x="14" y="12" width="90" height="40" rx="20" fill="#1c1a14"/><text x="59" y="38" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">All</text>
+    <rect x="120" y="12" width="190" height="40" rx="20" fill="#f1e7cf" stroke="#a97c2c" stroke-width="2"/><circle cx="144" cy="32" r="9" fill="#2f7d3b"/><text x="162" y="38" font-size="16" font-weight="700" fill="#1c1a14">5K FXPro Demo</text>
+    <rect x="324" y="12" width="190" height="40" rx="20" fill="#f1e7cf" stroke="#a97c2c" stroke-width="2"/><circle cx="348" cy="32" r="9" fill="#2f7d3b"/><text x="366" y="38" font-size="16" font-weight="700" fill="#1c1a14">FX Pro Demo</text>
+    <rect x="528" y="12" width="190" height="40" rx="20" fill="#fff" stroke="#d9cfb8" stroke-width="2"/><circle cx="552" cy="32" r="9" fill="#c9c2b1"/><text x="570" y="38" font-size="16" font-weight="600" fill="#6b6455">Live account</text>
+  </g>
+  <g transform="translate(40,170)">
+    <rect class="card" width="350" height="150" rx="16"/><text class="t" x="20" y="38">Account A in view</text><text class="s" x="20" y="64">Trades, plans, reviews, analytics</text><text class="s" x="20" y="86">only for this account</text>
+    <rect class="card" x="385" width="350" height="150" rx="16"/><text class="t" x="405" y="38">Account B in view</text><text class="s" x="405" y="64">Toggle independently: view one,</text><text class="s" x="405" y="86">several, or All at the same time</text>
+    <rect x="770" width="350" height="150" rx="16" fill="#1c1a14"/><text x="790" y="38" font-size="18" font-weight="700" fill="#d6a84f">Journal scope = selection</text><text x="790" y="64" font-size="14" fill="#e9dcc0">Data is merged and sorted across the</text><text x="790" y="86" font-size="14" fill="#e9dcc0">selected accounts; new trades are tagged</text><text x="790" y="108" font-size="14" fill="#e9dcc0">when exactly one account is in view.</text>
+  </g>
+</svg>
