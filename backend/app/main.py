@@ -13,10 +13,12 @@ from app.api import (
     admin,
     auth,
     dashboard,
+    development,
     devices,
     ea,
     integrations,
     mt5_connector,
+    performance,
     plans,
     platform,
     profile,
@@ -28,6 +30,7 @@ from app.db import engine
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -66,14 +69,17 @@ app.include_router(profile.router, prefix="/api/v1")
 app.include_router(accounts.router, prefix="/api/v1")
 app.include_router(trades.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
+app.include_router(performance.router, prefix="/api/v1")
 app.include_router(risk.router, prefix="/api/v1")
 app.include_router(integrations.router, prefix="/api/v1")
 app.include_router(mt5_connector.router, prefix="/api/v1")
 app.include_router(ea.router, prefix="/api/v1")
+app.include_router(development.router, prefix="/api/v1")
 app.include_router(devices.public_router, prefix="/api/v1")
 app.include_router(devices.router, prefix="/api/v1")
 app.include_router(platform.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(admin.mfa_router, prefix="/api/v1")
 
 
 @app.get("/healthz", tags=["Operations"])

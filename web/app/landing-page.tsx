@@ -35,6 +35,34 @@ const features = [
     description:
       "Manage accounts, import journal records, and use available MT5 and TradingView integrations when configured.",
   },
+  {
+    number: "05",
+    icon: "spark",
+    title: "Your edge, measured in R",
+    description:
+      "Expectancy, profit factor, drawdown and recovery, computed only from your own closed trades.",
+  },
+  {
+    number: "06",
+    icon: "layers",
+    title: "Strategy & setup ranking",
+    description:
+      "See which strategies show an observed edge and which leak, with honest sample-size warnings.",
+  },
+  {
+    number: "07",
+    icon: "target",
+    title: "Behavior & time insight",
+    description:
+      "Find patterns after losses, rule breaks, emotions, and the hours and days you trade best.",
+  },
+  {
+    number: "08",
+    icon: "check",
+    title: "A personal roadmap",
+    description:
+      "Get 2–3 focus areas for the next 30 days and track your progress against them.",
+  },
 ];
 
 const resources = [
@@ -258,6 +286,21 @@ export function LandingPage({
         </div>
       </section>
 
+      <section className="landing-section agent-section" id="agent">
+        <div className="landing-section-heading">
+          <span className="landing-kicker">EDGE INTELLIGENCE</span>
+          <h2>Four questions. <span>Answered by your own data.</span></h2>
+          <p>A calm workspace, not a wall of charts. Every number is scoped to your account and your trades.</p>
+        </div>
+        <div className="agent-grid">
+          <article><span className="agent-q">01</span><h3>What is happening?</h3><p>Live account status, open positions and recent trade activity from MT5.</p></article>
+          <article><span className="agent-q">02</span><h3>What does my data reveal?</h3><p>Expectancy, profit factor, strategy ranking, time and behavior analysis, MAE/MFE.</p></article>
+          <article><span className="agent-q">03</span><h3>What should I work on?</h3><p>A personalized roadmap with the highest-impact focus areas.</p></article>
+          <article><span className="agent-q">04</span><h3>Am I improving?</h3><p>Saved roadmaps, personal goals and rule experiments with honest evidence, plus a process score for reviews and rule adherence.</p></article>
+        </div>
+        <div className="agent-points"><span>Private per-user analysis</span><span>No outside AI sees your trades</span><span>Samples flagged until 30 trades</span><span>Associations, not advice</span></div>
+      </section>
+
       <section className="landing-section about-section" id="about">
         <div className="about-visual">
           <div className="about-orbit"><div className="about-core"><span>IQ</span><small>YOUR PROCESS</small></div><i className="orbit-node node-one" /><i className="orbit-node node-two" /><i className="orbit-node node-three" /></div>
@@ -267,6 +310,7 @@ export function LandingPage({
           <span className="landing-kicker">WHY TRADEIQ</span>
           <h2>Better trading starts with <span>better questions.</span></h2>
           <p>Performance is more than a winning streak. TradeIQ gives you a thoughtful place to record your decisions, revisit your plan, and understand the habits behind your results.</p>
+          <p>Version 2 adds Edge Intelligence on top of the journal: the same private workspace now shows where your edge is and where it leaks.</p>
           <p>It is designed to keep your trading story in one private workspace—clear enough to review, structured enough to learn from.</p>
           <div className="about-values">
             <div><Mark name="lock" /><span><b>Your data stays yours</b><small>Private workspace, secured account.</small></span></div>
@@ -293,6 +337,8 @@ export function LandingPage({
           <div><span className="landing-kicker">QUICK ANSWERS</span><h3>Things traders ask.</h3></div>
           <div className="faq-list">
             <details><summary>What happens when I sign in?<span>+</span></summary><p>Your credentials are checked by the TradeIQ API. Once your session is confirmed, your private journal workspace opens.</p></details>
+            <details><summary>What is Edge Intelligence?<span>+</span></summary><p>A per-user analytics layer that turns your closed trades, tags and reviews into expectancy, strategy ranking, behavior patterns and a roadmap. It uses only your data and does not give trading signals.</p></details>
+            <details><summary>Why do some metrics show a dash?<span>+</span></summary><p>Metrics need recorded R-multiples. Nothing is estimated, and profit factor is hidden when accounts mix currencies.</p></details>
             <details><summary>Do I need to connect a broker?<span>+</span></summary><p>No. You can start with a manual journal. Account connections and integrations are optional and depend on your setup.</p></details>
             <details><summary>Is TradeIQ a trading or investment service?<span>+</span></summary><p>No. TradeIQ is a journaling and decision-review workspace, not financial advice or a broker.</p></details>
           </div>

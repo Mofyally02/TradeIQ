@@ -13,6 +13,18 @@ def promote(test_engine, email):
         db.commit()
 
 
+def enroll_admin_mfa(client):
+    from app.api.admin import _totp
+
+    setup = client.post("/api/v1/admin/mfa/setup")
+    assert setup.status_code == 200
+    result = client.post(
+        "/api/v1/admin/mfa/confirm",
+        json={"code": _totp(setup.json()["secret"])},
+    )
+    assert result.status_code == 200
+
+
 def test_user_cannot_use_ea_unless_admin_enables_it(client):
     register(client)
     account_id = make_account(client)["id"]
@@ -23,6 +35,7 @@ def test_user_cannot_use_ea_unless_admin_enables_it(client):
 def test_admin_switch_enables_ea_flow(client, test_engine):
     register(client, "boss@example.com")
     promote(test_engine, "boss@example.com")
+    enroll_admin_mfa(client)
     assert client.put("/api/v1/admin/settings", json={"method": "ea"}).status_code == 200
     account_id = make_account(client)["id"]
     connect = client.post(f"/api/v1/accounts/{account_id}/ea/connect")
@@ -80,6 +93,7 @@ def test_admin_endpoints_require_admin_and_switch_user(client, test_engine):
     client.post("/api/v1/auth/logout")
     register(client, "boss@example.com")
     promote(test_engine, "boss@example.com")
+    enroll_admin_mfa(client)
     users = client.get("/api/v1/admin/users").json()
     target = next(u for u in users if u["email"] == "user@example.com")
     result = client.put(f"/api/v1/admin/users/{target['id']}/mt5-method", json={"method": "ea"})
@@ -87,9 +101,110 @@ def test_admin_endpoints_require_admin_and_switch_user(client, test_engine):
     assert client.get("/api/v1/admin/overview").json()["users"] == 2
 
 
+def test_admin_mfa_incidents_and_audit(client, test_engine):
+    from app.api.admin import _totp
+
+    register(client, "mfa-admin@example.com")
+    promote(test_engine, "mfa-admin@example.com")
+    blocked = client.get("/api/v1/admin/me")
+    assert blocked.status_code == 428
+
+    setup = client.post("/api/v1/admin/mfa/setup")
+    assert setup.status_code == 200
+    secret = setup.json()["secret"]
+    enabled = client.post("/api/v1/admin/mfa/confirm", json={"code": _totp(secret)})
+    assert enabled.status_code == 200
+    assert client.get("/api/v1/admin/me").json()["mfa_enabled"] is True
+
+    created = client.post(
+        "/api/v1/admin/incidents",
+        json={
+            "category": "connector",
+            "severity": "high",
+            "title": "Stale connector",
+            "description": "Heartbeat stopped.",
+        },
+    )
+    assert created.status_code == 201
+    incident_id = created.json()["id"]
+    unresolved = client.patch(
+        f"/api/v1/admin/incidents/{incident_id}",
+        json={"status": "resolved"},
+    )
+    assert unresolved.status_code == 422
+    resolved = client.patch(
+        f"/api/v1/admin/incidents/{incident_id}",
+        json={"status": "resolved", "resolution_reason": "Connector resumed."},
+    )
+    assert resolved.status_code == 200
+    actions = [item["action"] for item in client.get("/api/v1/admin/audit-logs").json()]
+    assert "admin.mfa.enabled" in actions
+    assert "incident.create" in actions
+    assert "incident.update" in actions
+
+    client.post("/api/v1/auth/login", json={"email": "mfa-admin@example.com", "password": "long-enough-password"})
+    assert client.get("/api/v1/admin/me").status_code == 428
+    assert client.post("/api/v1/admin/mfa/verify", json={"code": _totp(secret)}).status_code == 200
+    assert client.get("/api/v1/admin/me").status_code == 200
+
+
+def test_admin_roles_and_suspension_are_enforced(client, test_engine):
+    from fastapi.testclient import TestClient
+
+    from app.api.admin import _totp
+    from app.main import app
+    from app.platform_models import AdminPermission, AdminRole, AdminRolePermission
+
+    register(client, "rbac-admin@example.com")
+    promote(test_engine, "rbac-admin@example.com")
+    enroll_admin_mfa(client)
+    target = TestClient(app)
+    target_user = register(target, "support@example.com")
+
+    with Session(test_engine) as db:
+        role = AdminRole(name="support_agent", description="Restricted support access")
+        permission = AdminPermission(key="users.read", description="Read user metadata")
+        db.add_all([role, permission])
+        db.flush()
+        db.add(AdminRolePermission(role_id=role.id, permission_id=permission.id))
+        db.commit()
+
+    assignment = client.put(
+        f"/api/v1/admin/users/{target_user['id']}/roles",
+        json={"roles": ["support_agent"], "reason": "Support rota assignment."},
+    )
+    assert assignment.status_code == 200
+    assert target.get("/api/v1/admin/me").status_code == 428
+
+    setup = target.post("/api/v1/admin/mfa/setup")
+    assert setup.status_code == 200
+    assert target.post(
+        "/api/v1/admin/mfa/confirm",
+        json={"code": _totp(setup.json()["secret"])},
+    ).status_code == 200
+    assert target.get("/api/v1/admin/me").json()["roles"] == ["support_agent"]
+    assert target.get("/api/v1/admin/users").status_code == 200
+    assert target.get("/api/v1/admin/settings").status_code == 403
+
+    suspension = client.patch(
+        f"/api/v1/admin/users/{target_user['id']}/status",
+        json={"status": "suspended", "reason": "Support access ended."},
+    )
+    assert suspension.status_code == 200
+    assert target.get("/api/v1/auth/me").status_code == 401
+    assert target.post(
+        "/api/v1/auth/login",
+        json={"email": "support@example.com", "password": "long-enough-password"},
+    ).status_code == 403
+    assert "user.status.update" in [
+        item["action"] for item in client.get("/api/v1/admin/audit-logs").json()
+    ]
+
+
 def test_device_detects_and_claims_multiple_accounts(client, test_engine):
     register(client, "multi@example.com")
     promote(test_engine, "multi@example.com")
+    enroll_admin_mfa(client)
     client.put("/api/v1/admin/settings", json={"method": "ea"})
     connector = client.post("/api/v1/devices/connector").json()
     path = connector["webhook_url"].split("localhost:8000", 1)[1]

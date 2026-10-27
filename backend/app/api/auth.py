@@ -65,6 +65,11 @@ def login(payload: UserLogin, response: Response, db: Database) -> User:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Email or password is incorrect"
         )
+    if user.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is currently unavailable. Contact support.",
+        )
     issue_session(db, user, response)
     return user
 

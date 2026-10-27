@@ -84,6 +84,7 @@ def serialize_trade(db: Database, trade: Trade) -> TradeRead:
         symbol=trade.symbol,
         direction=trade.direction,
         strategy=trade.strategy,
+        setup=trade.setup,
         outcome=trade.outcome,
         pnl=float(trade.pnl) if trade.pnl is not None else None,
         r_multiple=float(trade.r_multiple) if trade.r_multiple is not None else None,
@@ -91,19 +92,26 @@ def serialize_trade(db: Database, trade: Trade) -> TradeRead:
         exit_price=float(trade.exit_price) if trade.exit_price is not None else None,
         size=float(trade.size) if trade.size is not None else None,
         stop_loss=(
-            float(position.stop_loss)
+            float(trade.stop_loss)
+            if trade.stop_loss is not None
+            else float(position.stop_loss)
             if position and position.stop_loss is not None
             else None
         ),
         take_profit=(
-            float(position.take_profit)
+            float(trade.take_profit)
+            if trade.take_profit is not None
+            else float(position.take_profit)
             if position and position.take_profit is not None
             else None
         ),
+        mae_r=float(trade.mae_r) if trade.mae_r is not None else None,
+        mfe_r=float(trade.mfe_r) if trade.mfe_r is not None else None,
+        emotional_state=trade.emotional_state,
+        confluences=list(trade.confluences or []),
+        rule_breaks=list(trade.rule_breaks or []),
         floating_pnl=(
-            float(position.floating_pnl)
-            if position and position.floating_pnl is not None
-            else None
+            float(position.floating_pnl) if position and position.floating_pnl is not None else None
         ),
         gross_pnl=deal_totals["gross_pnl"] if trade.source == "mt5" else None,
         commission=deal_totals["commission"] if trade.source == "mt5" else None,
@@ -220,12 +228,20 @@ def create_trade(
         symbol=payload.symbol,
         direction=payload.direction.value,
         strategy=payload.strategy,
+        setup=payload.setup,
         outcome=payload.outcome.value,
         pnl=payload.pnl,
         r_multiple=payload.r_multiple,
         entry_price=payload.entry_price,
         exit_price=payload.exit_price,
         size=payload.size,
+        stop_loss=payload.stop_loss,
+        take_profit=payload.take_profit,
+        mae_r=payload.mae_r,
+        mfe_r=payload.mfe_r,
+        emotional_state=payload.emotional_state,
+        confluences=payload.confluences,
+        rule_breaks=payload.rule_breaks,
         notes=payload.notes,
         source="user",
         opened_at=payload.opened_at,
@@ -273,10 +289,19 @@ def update_trade(
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=422, detail="Provide at least one field to update")
-    if trade.source != "user" and any(key != "notes" for key in changes):
+    user_context_fields = {
+        "notes",
+        "emotional_state",
+        "setup",
+        "confluences",
+        "rule_breaks",
+        "mae_r",
+        "mfe_r",
+    }
+    if trade.source != "user" and any(key not in user_context_fields for key in changes):
         raise HTTPException(
             status_code=409,
-            detail="Imported execution facts are read-only; only user notes may be changed",
+            detail="Imported execution facts are read-only; only journal context may be changed",
         )
     if trade.source == "user":
         updated_outcome = changes.get("outcome", trade.outcome)
@@ -304,7 +329,16 @@ def update_trade(
                 detail="Close timestamp cannot precede the open timestamp",
             )
     for key, value in changes.items():
-        if value is not None or key in {"notes", "pnl", "r_multiple", "exit_price", "closed_at"}:
+        if value is not None or key in {
+            "notes",
+            "pnl",
+            "r_multiple",
+            "exit_price",
+            "closed_at",
+            "emotional_state",
+            "mae_r",
+            "mfe_r",
+        }:
             if key == "tags":
                 replace_tags(db, trade, current_user.id, value or [])
             else:

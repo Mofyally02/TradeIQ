@@ -31,7 +31,10 @@ cd "$DATA"
 echo "3/5 Writing your connection settings..."
 utf16() { { printf '\xff\xfe'; iconv -f UTF-8 -t UTF-16LE; } > "$1"; }
 printf 'WebhookURL=%s\r\nSyncHistoryDays=365\r\nPushSeconds=30\r\nUseFileBridge=true\r\n' "$URL" | utf16 "$DATA/MQL5/Presets/TradeIQ.set"
-printf '__COMMON_SH__[Experts]\r\nAllowLiveTrading=1\r\nEnabled=1\r\nAccount=1\r\nProfile=1\r\n[StartUp]\r\nExpert=TradeIQ_Journal\r\nExpertParameters=TradeIQ.set\r\nSymbol=EURUSD\r\nPeriod=H1\r\n' | utf16 "$DATA/config/tradeiq_start.ini"
+printf '__COMMON_SH__[Experts]\r\nAllowLiveTrading=1\r\nEnabled=1\r\nAccount=0\r\nProfile=0\r\n[StartUp]\r\nExpert=TradeIQ_Journal\r\nExpertParameters=TradeIQ.set\r\nSymbol=EURUSD\r\nPeriod=H1\r\n' | utf16 "$DATA/config/tradeiq_start.ini"
+python3 - "$DATA" "$URL" <<'TRADEIQ_ATTACH_PY'
+__ATTACH_PY__
+TRADEIQ_ATTACH_PY
 echo "4/5 Starting the background sync service..."
 mkdir -p "$HOME/.tradeiq"
 curl -fsSL "$BASE/bridge.py" -o "$HOME/.tradeiq/bridge.py"
@@ -50,7 +53,7 @@ PLISTEOF
 chmod 600 "$PLIST"
 launchctl unload "$PLIST" >/dev/null 2>&1 || true
 launchctl load "$PLIST"
-echo "5/5 Reopening MetaTrader 5 with TradeIQ attached..."
+echo "5/5 Reopening MetaTrader 5 with TradeIQ attached (it will now reattach by itself every time)..."
 nohup "$WINE" terminal64.exe /config:"C:\\Program Files\\MetaTrader 5\\config\\tradeiq_start.ini" >/dev/null 2>&1 &
 echo "Done. Return to TradeIQ - your account will show as connected in about a minute."
 sleep 3
@@ -77,7 +80,25 @@ Invoke-WebRequest "$Base/ea.mq5" -OutFile "$Data\MQL5\Experts\TradeIQ_Journal.mq
 & "$Install\metaeditor64.exe" "/compile:$Data\MQL5\Experts\TradeIQ_Journal.mq5" "/log:$Data\tradeiq_compile.log" | Out-Null
 Write-Host '3/5 Writing your connection settings...'
 "WebhookURL=$Url`r`nSyncHistoryDays=365`r`nPushSeconds=30`r`nUseFileBridge=true`r`n" | Out-File -Encoding Unicode "$Data\MQL5\Presets\TradeIQ.set"
-"__COMMON_PS__[Experts]`r`nAllowLiveTrading=1`r`nEnabled=1`r`nAccount=1`r`nProfile=1`r`n[StartUp]`r`nExpert=TradeIQ_Journal`r`nExpertParameters=TradeIQ.set`r`nSymbol=EURUSD`r`nPeriod=H1`r`n" | Out-File -Encoding Unicode "$Data\config\tradeiq_start.ini"
+"__COMMON_PS__[Experts]`r`nAllowLiveTrading=1`r`nEnabled=1`r`nAccount=0`r`nProfile=0`r`n[StartUp]`r`nExpert=TradeIQ_Journal`r`nExpertParameters=TradeIQ.set`r`nSymbol=EURUSD`r`nPeriod=H1`r`n" | Out-File -Encoding Unicode "$Data\config\tradeiq_start.ini"
+$profile = 'Default'
+$common = "$Data\config\common.ini"
+if (Test-Path $common) { $m = [regex]::Match((Get-Content $common -Raw), '(?m)^ProfileLast=(.+)$'); if ($m.Success) { $profile = $m.Groups[1].Value.Trim() } }
+$block = "<expert>`r`n<inputs>`r`nWebhookURL=$Url`r`nSyncHistoryDays=365`r`nPushSeconds=30`r`nUseFileBridge=true`r`n</inputs>`r`nname=TradeIQ_Journal`r`npath=Experts\TradeIQ_Journal.ex5`r`nexpertmode=5`r`n</expert>`r`n"
+$charts = @(Get-ChildItem "$Data\MQL5\Profiles\Charts\$profile\*.chr" -ErrorAction SilentlyContinue)
+$texts = @{}; foreach ($c in $charts) { $texts[$c.FullName] = [IO.File]::ReadAllText($c.FullName) }
+$ours = $charts | Where-Object { $texts[$_.FullName] -match 'TradeIQ_Journal\.ex5' } | Select-Object -First 1
+$free = @($charts | Where-Object { $texts[$_.FullName] -notmatch '<expert>' })
+if ($ours) { $t = [regex]::Replace($texts[$ours.FullName], '(?s)<expert>(?:(?!</expert>).)*?TradeIQ_Journal\.ex5.*?</expert>\r?\n?', { param($x) $block }, 1); [IO.File]::WriteAllText($ours.FullName, $t, [Text.Encoding]::Unicode) }
+elseif ($free.Count -gt 0) {
+  $pick = $free | Where-Object { $texts[$_.FullName] -match 'symbol=EURUSD' } | Select-Object -First 1; if (-not $pick) { $pick = $free[0] }
+  $t = $texts[$pick.FullName].Replace("<chart>`r`n", "<chart>`r`n$block"); [IO.File]::WriteAllText($pick.FullName, $t, [Text.Encoding]::Unicode)
+}
+if (Test-Path $common) {
+  $t = Get-Content $common -Raw
+  foreach ($k in 'Account', 'Profile') { $t = [regex]::Replace($t, "(?m)^$k=.*$", "$k=0") }
+  [IO.File]::WriteAllText($common, $t, [Text.Encoding]::Unicode)
+}
 Write-Host '4/5 Starting the background sync service...'
 $dir = "$env:USERPROFILE\.tradeiq"; New-Item -ItemType Directory -Force $dir | Out-Null
 $bridge = @'
@@ -101,7 +122,7 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $
 Unregister-ScheduledTask -TaskName 'TradeIQ Bridge' -Confirm:$false -ErrorAction SilentlyContinue
 Register-ScheduledTask -TaskName 'TradeIQ Bridge' -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $args2) -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Force | Out-Null
 Start-ScheduledTask -TaskName 'TradeIQ Bridge'
-Write-Host '5/5 Reopening MetaTrader 5 with TradeIQ attached...'
+Write-Host '5/5 Reopening MetaTrader 5 with TradeIQ attached (it will now reattach by itself every time)...'
 Start-Process "$Install\terminal64.exe" "/config:`"$Data\config\tradeiq_start.ini`""
 Write-Host 'Done. Return to TradeIQ - your account will show as connected in about a minute.'
 """
@@ -118,8 +139,10 @@ def render_installer(os_name: str, *, name: str, url: str, base: str, login: str
     login_c, server_c = _clean(login), _clean(server)
     common_sh = f"[Common]\\r\\nLogin={login_c}\\r\\nServer={server_c}\\r\\n" if login_c else ""
     common_ps = f"[Common]`r`nLogin={login_c}`r`nServer={server_c}`r`n" if login_c else ""
+    attach_py = (EA_DIR / "attach_ea.py").read_text(encoding="utf-8")
     body = (
-        template.replace("__COMMON_SH__", common_sh)
+        template.replace("__ATTACH_PY__", attach_py)
+        .replace("__COMMON_SH__", common_sh)
         .replace("__COMMON_PS__", common_ps)
         .replace("__NAME__", _clean(name))
         .replace("__URL__", url)

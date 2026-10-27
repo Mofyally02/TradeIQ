@@ -54,7 +54,8 @@ class User(Base):
     id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     full_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
-    role: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
+    role: Mapped[str] = mapped_column(String(32), default="user", server_default="user")
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
     mt5_method: Mapped[str | None] = mapped_column(String(16), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
@@ -75,6 +76,7 @@ class UserSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    mfa_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     user: Mapped[User] = relationship(back_populates="sessions")
 
 

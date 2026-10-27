@@ -2,6 +2,44 @@
 
 The API now includes authenticated endpoints and database models for profile/preferences, trading accounts and connection status, trade plans and version history, journal trades/events/reviews/tags, dashboard summaries and analytics, account risk profiles, and TradingView alert receipt/matching. Account records, manually entered trades, plans, reviews, preferences, and alerts persist through SQLAlchemy and Alembic-managed tables.
 
+## Per-user performance intelligence (API foundation)
+
+The authenticated `/api/v1/performance` endpoints compute metrics directly from the
+requesting user's closed trades. They do not use a shared dataset, accept a caller-supplied
+user ID, or send trade/journal data to an AI provider:
+
+- `GET /api/v1/performance/edge-snapshot` — expectancy in recorded R, profit factor,
+  win/loss averages, cumulative-R drawdown/recovery, holding time, recorded MAE/MFE,
+  and sample/data-coverage warnings.
+- `GET /api/v1/performance/strategies` — per-strategy metrics and a top observed strategy
+  only when at least 30 trades have recorded R-multiples.
+- `GET /api/v1/performance/setups` — the same analysis grouped by the separately captured
+  setup label.
+- `GET /api/v1/performance/time` — hour-of-day and weekday outcome cohorts in the selected
+  user timezone.
+- `GET /api/v1/performance/behavior` — cohorts by explicitly recorded emotion, rule-break
+  labels, confluences, user tags, review adherence, and trades opened within a configurable
+  interval after a closed loss.
+- `GET /api/v1/performance/roadmap` — deterministic review priorities based on the user's
+  sample size, R coverage, and recorded rule-break cohorts.
+- `POST, GET /api/v1/performance/roadmaps` — save a per-user roadmap snapshot and list prior
+  snapshots; `PATCH /api/v1/performance/roadmaps/{roadmap_id}` tracks progress status and notes.
+
+All endpoints support `account_id`, `start_date`, `end_date`, and `timezone` filters.
+Dates are inclusive in the selected timezone. An account ID must belong to the signed-in
+user. Mixed account currencies suppress combined currency-denominated outputs. MAE/MFE
+are only calculated from values actually recorded in R; historical excursion paths cannot
+be reconstructed from entry and exit prices alone. Likewise, strategy/behavior cohorts
+are descriptive associations, not evidence of cause or financial advice. Older records
+remain valid with null excursion and behavior context; manual trade create/update APIs
+accept optional setup, stop/target, MAE/MFE, emotion, confluence, and rule-break context.
+Position-size leak detection is deliberately not inferred from lot size and stop distance:
+contract specifications and verified account equity at entry are required before that
+calculation can be made reliably.
+
+Apply the new Alembic migration before using the extended trade context fields in a
+deployed database.
+
 The Next.js UI calls the API for authentication, accounts, plans, journal episodes/sections, reviews, timezone preferences, and the MT5/TradingView connection workflows. A Windows MT5 worker logs in with the saved MT5 credentials using the MetaTrader5 Python package and imports history by polling. Dashboard and analytics presentation still derives some values in the browser, and profile/currency/theme settings are not fully surfaced. Object storage, live notification transport, and production PostgreSQL deployment are not configured.
 
 ## Requirements
@@ -135,3 +173,38 @@ Set once in `backend/.env` and restart the API:
 - `CREDENTIAL_ENCRYPTION_KEY` — required in production
 
 The self-hosted Windows `mt5_worker` remains an optional alternative.
+
+## Development goals and experiments
+`/api/v1/development/goals` and `/api/v1/development/experiments` (CRUD, per-user). Progress and evidence are computed from the user's own closed trades; see the Version 2.0 PRD.
+
+## Admin Control Center
+`/api/v1/admin/*` is a separate, API-authorized operations surface. The admin frontend is
+`web/app/admin`. Apply Alembic migrations through `91f2d86c4a10` before using it.
+
+- Persisted roles and permissions are enforced server-side. Legacy `users.role = 'admin'`
+  remains a compatibility Super Admin identity; other roles are assigned through the
+  audited `/admin/users/{id}/roles` endpoint.
+- Admin API access requires TOTP MFA. Sign in with the normal account, then use
+  `/admin/mfa/setup` once to obtain a secret for an authenticator app, `/confirm` to
+  enable it, and `/verify` for subsequent sessions. The encrypted secret uses the
+  existing `CREDENTIAL_ENCRYPTION_KEY` in production. A verified admin session must
+  re-verify after 12 hours.
+- Repeated invalid codes lock the factor temporarily. Admin access additionally checks
+  the target account's current active status; suspending a user revokes existing sessions.
+- Administrative writes for settings, roles, user status, incidents and MFA are recorded
+  in `admin_audit_logs`. Audit records have no API update/delete operation. Connector
+  diagnostics are redacted; broker credentials and journal reflections are excluded.
+- `/admin/reconciliation-issues` returns potential unmatched-deal candidates only; it
+  does not alter source records or resolve them. `/admin/intelligence/health` reports
+  unsupported persisted analysis jobs explicitly rather than inventing queue metrics.
+- Account-scoped role grants, recovery codes, dual approval, emergency elevation,
+  support-case management, persisted reconciliation workflows, shared taxonomies,
+  risk-policy versioning and evaluation datasets are not yet implemented. See the
+  Version 2.0 PRD for the release roadmap and security constraints.
+
+## MT5 one-click connector persistence
+
+The generated installers (`app/services/installer.py`, helper `ea/attach_ea.py`) store the TradeIQ EA in the
+terminal's saved chart profile and set `[Experts] Account=0`, `Profile=0` in `config/common.ini`. After setup the
+trader only opens MT5 and logs in; the EA reloads on every normal launch and keeps running when the account is
+switched, and the device connector detects each new login automatically.

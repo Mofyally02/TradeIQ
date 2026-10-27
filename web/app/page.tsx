@@ -1,16 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import Image from "next/image";
+import { BrainCircuit, ChartNoAxesCombined, ClipboardCheck, ClipboardList, Crosshair, FileChartColumn, LayoutDashboard, NotebookPen, Route, ShieldCheck, Target, WalletCards } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { ApiError, apiRequest, getApiBaseUrl } from "./api";
 import { AccountSwitcher, DetectedAccountsBanner, useDetectedAccounts } from "./multi-account";
 import { EaSetupWizard } from "./ea-wizard";
 import { EditAccountModal } from "./edit-account-modal";
 import { PnlCalendar } from "./components/pnl-calendar";
+import { ReportsPage, AnalyticsWorkspace, DevelopmentRoadmap, RiskIntelligence, StrategyLab, AskAgentPanel, EdgeSnapshot, RoadmapWidget, fmtR, profitFactorTone, usePerformanceData } from "./components/performance-workspace";
 import { LandingPage } from "./landing-page";
 
-type ViewId = "overview" | "journal" | "plans" | "reviews" | "analytics" | "accounts";
+type ViewId = "overview" | "journal" | "plans" | "reviews" | "analytics" | "intelligence" | "strategies" | "risk" | "execution" | "roadmap" | "reports" | "accounts";
 type TradeOutcome = "Win" | "Loss" | "Flat" | "Open" | "Planned" | "Discarded";
 type Trade = {
   id: string;
@@ -29,6 +32,12 @@ type Trade = {
   size?: number | null;
   setupNotes?: string;
   setupEmotion?: string;
+  setupName?: string;
+  maeR?: number | null;
+  mfeR?: number | null;
+  emotionalState?: string | null;
+  confluences?: string[];
+  ruleBreaks?: string[];
   journalEntries?: TradeJournalEntry[];
   source?: "demo" | "manual" | "mt5";
   accountId?: string | null;
@@ -102,6 +111,12 @@ type ApiTrade = {
   size: number | null;
   stop_loss: number | null;
   take_profit: number | null;
+  setup?: string | null;
+  mae_r?: number | null;
+  mfe_r?: number | null;
+  emotional_state?: string | null;
+  confluences?: string[];
+  rule_breaks?: string[];
   floating_pnl: number | null;
   account_id?: string | null;
   notes: string | null;
@@ -139,12 +154,23 @@ type DashboardDateRange = {
   endDate: string;
 };
 
+const navIcons: Record<ViewId, LucideIcon> = {
+  overview: LayoutDashboard, journal: NotebookPen, plans: ClipboardList, reviews: ClipboardCheck, analytics: ChartNoAxesCombined,
+  intelligence: BrainCircuit, strategies: Target, execution: Crosshair, risk: ShieldCheck, roadmap: Route, reports: FileChartColumn, accounts: WalletCards,
+};
+
 const navigation: { id: ViewId; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "grid" },
   { id: "journal", label: "Trade journal", icon: "book" },
   { id: "plans", label: "Trade plans", icon: "target" },
   { id: "reviews", label: "Reviews", icon: "check" },
   { id: "analytics", label: "Analytics", icon: "chart" },
+  { id: "intelligence", label: "Edge Intelligence", icon: "spark" },
+  { id: "strategies", label: "Strategy Lab", icon: "target" },
+  { id: "execution", label: "Execution Lab", icon: "check" },
+  { id: "risk", label: "Risk Intelligence", icon: "wallet" },
+  { id: "roadmap", label: "Development Roadmap", icon: "check" },
+  { id: "reports", label: "Reports", icon: "book" },
   { id: "accounts", label: "Accounts", icon: "wallet" },
 ];
 
@@ -164,6 +190,12 @@ const viewCopy: Record<ViewId, { title: string; description: string }> = {
   plans: { title: "Trade plans", description: "Capture your intent before the first fill changes the story." },
   reviews: { title: "Trade reviews", description: "Turn completed trades into one clear next action." },
   analytics: { title: "Performance analytics", description: "Read process and outcomes together, with context." },
+  intelligence: { title: "Edge Intelligence", description: "What is happening, what your data reveals, what to work on, and whether you are improving." },
+  strategies: { title: "Strategy Lab", description: "Rank and compare the setups you actually trade." },
+  execution: { title: "Execution Lab", description: "Planned versus actual: how closely your execution followed the trade you planned." },
+  risk: { title: "Risk Intelligence", description: "Drawdown, discipline and the cost of rule breaks." },
+  roadmap: { title: "Development Roadmap", description: "Your focus areas and whether they are moving." },
+  reports: { title: "Reports", description: "Compare a period with the one before it and download the evidence." },
   accounts: { title: "Trading accounts", description: "Keep each trading environment visible and distinct." },
 };
 
@@ -188,9 +220,26 @@ function mapApiTrade(trade: ApiTrade): Trade {
     size: trade.size,
     stopLoss: trade.stop_loss,
     takeProfit: trade.take_profit,
+    setupName: trade.setup ?? "",
+    maeR: trade.mae_r ?? null,
+    mfeR: trade.mfe_r ?? null,
+    emotionalState: trade.emotional_state ?? null,
+    confluences: trade.confluences ?? [],
+    ruleBreaks: trade.rule_breaks ?? [],
     plan: trade.notes ?? "",
     source: trade.source === "mt5" ? "mt5" : "manual",
     accountId: trade.account_id ?? null,
+  };
+}
+
+function v2Context(trade: Trade) {
+  return {
+    setup: trade.setupName?.trim() || undefined,
+    mae_r: trade.maeR ?? null,
+    mfe_r: trade.mfeR ?? null,
+    emotional_state: trade.emotionalState ?? null,
+    confluences: trade.confluences ?? [],
+    rule_breaks: trade.ruleBreaks ?? [],
   };
 }
 
@@ -593,15 +642,16 @@ function OutcomeBadge({ outcome }: { outcome: TradeOutcome }) {
   return <span className={`outcome-badge outcome-${outcome.toLowerCase()}`}><i />{outcome}</span>;
 }
 
-function TradeTable({ trades, compact = false, onManageTrade }: { trades: Trade[]; compact?: boolean; onManageTrade?: (trade: Trade) => void }) {
+function TradeTable({ trades, compact = false, onManageTrade, selected, onToggleSelect }: { trades: Trade[]; compact?: boolean; onManageTrade?: (trade: Trade) => void; selected?: string[]; onToggleSelect?: (id: string) => void }) {
   const visibleTrades = compact ? trades.slice(0, 4) : trades;
   return (
     <div className="table-scroll">
       <table className="trade-table">
-        <thead><tr><th>Instrument</th><th>Strategy</th><th>Time</th><th>Outcome</th><th className="align-right">P&amp;L</th>{onManageTrade && <th><span className="sr-only">Journal actions</span></th>}</tr></thead>
+        <thead><tr>{onToggleSelect && <th><span className="sr-only">Select</span></th>}<th>Instrument</th><th>Strategy</th><th>Time</th><th>Outcome</th><th className="align-right">P&amp;L</th>{onManageTrade && <th><span className="sr-only">Journal actions</span></th>}</tr></thead>
         <tbody>
           {visibleTrades.map((trade) => (
             <tr key={trade.id}>
+              {onToggleSelect && <td><input type="checkbox" aria-label={`Select ${trade.symbol} ${trade.id}`} checked={selected?.includes(trade.id) ?? false} onChange={() => onToggleSelect(trade.id)} /></td>}
               <td><div className="instrument-cell"><span className={`direction-dot ${trade.direction.toLowerCase()}`} /> <div><strong>{trade.symbol}</strong><small>{trade.direction} · {trade.id}</small></div></div></td>
               <td className="muted-cell">{trade.strategy}</td>
               <td className="muted-cell">{formatTradeDate(trade.date)}</td>
@@ -617,7 +667,34 @@ function TradeTable({ trades, compact = false, onManageTrade }: { trades: Trade[
   );
 }
 
-function PerformanceChart({ period, trades }: { period: string; trades: Trade[] }) {
+function BulkBar({ trades, strategy, busy, askOpen, onStrategy, onAsk, onClear, onApply }: { trades: Trade[]; strategy: string; busy: boolean; askOpen: boolean; onStrategy: (value: string) => void; onAsk: () => void; onClear: () => void; onApply: () => void }) {
+  const closed = trades.filter((trade) => trade.pnl !== null);
+  const rs = trades.map((trade) => trade.rMultiple).filter((value): value is number => typeof value === "number");
+  const wins = closed.filter((trade) => (trade.pnl ?? 0) > 0).length;
+  const net = closed.reduce((sum, trade) => sum + (trade.pnl ?? 0), 0);
+  const byStrategy = trades.reduce<Record<string, number>>((acc, trade) => ({ ...acc, [trade.strategy]: (acc[trade.strategy] ?? 0) + 1 }), {});
+  return (
+    <div className="bulk-bar">
+      <div className="bulk-actions">
+        <strong>{trades.length} selected</strong>
+        <input aria-label="Strategy for selected trades" placeholder="Set strategy / setup tag" value={strategy} maxLength={120} onChange={(event) => onStrategy(event.target.value)} />
+        <button className="button" disabled={busy || !strategy.trim()} onClick={onApply}>{busy ? "Applying…" : "Apply tag"}</button>
+        <button className="button button-outline" onClick={onAsk}>Ask Agent about these trades</button>
+        <button className="button button-outline" onClick={onClear}>Clear</button>
+      </div>
+      {askOpen && (
+        <div className="bulk-summary">
+          <p><strong>{closed.length}</strong> closed of {trades.length} selected · {closed.length ? `${wins} wins (${Math.round((wins / closed.length) * 100)}%)` : "no closed trades"} · net {formatMoney(net)} (mixed currencies are not converted).</p>
+          <p>{rs.length ? `Recorded R on ${rs.length} trades: average ${(rs.reduce((a, b) => a + b, 0) / rs.length).toFixed(2)}R, total ${rs.reduce((a, b) => a + b, 0).toFixed(2)}R.` : "No R-multiples recorded for these trades."}</p>
+          <p>Strategies: {Object.entries(byStrategy).map(([name, count]) => `${name} (${count})`).join(", ")}.</p>
+          <small>{closed.length < 30 ? "Small sample: treat this as description, not evidence of edge." : "Descriptive summary of your own selection; it does not show causation."}</small>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PerformanceChart({ period, trades, showDrawdown = false, unit = "money" }: { period: string; trades: Trade[]; showDrawdown?: boolean; unit?: "money" | "r" }) {
   const days = period === "7D" ? 7 : period === "90D" ? 90 : 30;
   const allClosedTrades = trades.filter((trade) => (trade.outcome === "Win" || trade.outcome === "Loss" || trade.outcome === "Flat") && trade.pnl !== null);
   const latestTradeTime = allClosedTrades.reduce((latest, trade) => Math.max(latest, Date.parse(trade.date)), 0);
@@ -636,6 +713,27 @@ function PerformanceChart({ period, trades }: { period: string; trades: Trade[] 
     const y = 90 - ((value - rangeMin) / range) * 80;
     return `${x},${y}`;
   }).join(" ");
+  const toY = (value: number) => 90 - ((value - rangeMin) / range) * 80;
+  const toX = (index: number) => (pointValues.length === 1 ? 50 : (index / (pointValues.length - 1)) * 100);
+  const peaks = pointValues.reduce<number[]>((acc, value) => [...acc, Math.max(acc.at(-1) ?? 0, value)], []);
+  const underwater = pointValues.reduce<number[][]>((segments, value, index) => {
+    if (value >= peaks[index]) return [...segments, []];
+    const last = segments.length ? segments[segments.length - 1] : [];
+    return [...segments.slice(0, -1), [...last, index]];
+  }, [[]]).filter((segment) => segment.length > 0);
+  const shadePolygons = showDrawdown ? underwater.map((segment) => {
+    const lower = segment.map((index) => `${toX(index)},${toY(pointValues[index])}`);
+    const upper = [...segment].reverse().map((index) => `${toX(index)},${toY(peaks[index])}`);
+    return [...lower, ...upper].join(" ");
+  }) : [];
+  const drawdowns = pointValues.map((value, index) => peaks[index] - value);
+  const deepest = drawdowns.reduce((best, value, index) => (value > drawdowns[best] ? index : best), 0);
+  const bestIndex = closedTrades.reduce((best, trade, index) => ((trade.pnl ?? 0) > (closedTrades[best].pnl ?? 0) ? index : best), 0);
+  const fmtValue = (value: number) => (unit === "r" ? fmtR(value) : formatMoney(value));
+  const annotations = closedTrades.length > 2 ? [
+    drawdowns[deepest] > 0 ? { key: "dd", index: deepest, label: `Deepest drawdown: ${fmtValue(-drawdowns[deepest])} below peak (${formatTradeDate(closedTrades[deepest].date)})`, tone: "negative" } : null,
+    (closedTrades[bestIndex].pnl ?? 0) > 0 ? { key: "best", index: bestIndex, label: `Best single trade: ${closedTrades[bestIndex].symbol} ${fmtValue(closedTrades[bestIndex].pnl ?? 0)} (${formatTradeDate(closedTrades[bestIndex].date)})`, tone: "positive" } : null,
+  ].filter((item): item is { key: string; index: number; label: string; tone: string } => item !== null) : [];
   const zeroY = 90 - ((0 - rangeMin) / range) * 80;
   const areaPoints = `0,${zeroY} ${points} 100,${zeroY}`;
   const firstDate = closedTrades.length ? formatTradeDate(closedTrades[0].date) : "No closed trades";
@@ -648,8 +746,10 @@ function PerformanceChart({ period, trades }: { period: string; trades: Trade[] 
         <svg viewBox="0 0 100 100" preserveAspectRatio="none">
           <defs><linearGradient id="chart-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#c59a48" stopOpacity=".23" /><stop offset="100%" stopColor="#c59a48" stopOpacity="0" /></linearGradient></defs>
           <polygon points={areaPoints} fill="url(#chart-fill)" />
+          {shadePolygons.map((polygon, index) => <polygon key={index} points={polygon} className="chart-drawdown-shade" />)}
           <polyline points={points} fill="none" stroke="#bd9142" strokeWidth="1.35" vectorEffect="non-scaling-stroke" />
         </svg>
+        {annotations.map((item) => <span key={item.key} className={`chart-annotation ${item.tone}`} style={{ left: `${toX(item.index)}%`, top: `${toY(pointValues[item.index])}%` }} title={item.label} tabIndex={0} role="note" aria-label={item.label} />)}
         <div className="chart-x-labels"><span>{firstDate}</span><span>{lastDate}</span></div>
       </div>
     </div>
@@ -744,6 +844,12 @@ function ExecutionModal({ plan, onClose, onSave }: { plan: Trade; onClose: () =>
   const [emotion, setEmotion] = useState("Neutral");
   const [journalNote, setJournalNote] = useState("");
   const [isClosed, setIsClosed] = useState(wasClosed);
+  const [setupName, setSetupName] = useState(plan.setupName ?? "");
+  const [maeR, setMaeR] = useState(plan.maeR?.toString() ?? "");
+  const [mfeR, setMfeR] = useState(plan.mfeR?.toString() ?? "");
+  const [emotionalState, setEmotionalState] = useState(plan.emotionalState ?? "");
+  const [confluences, setConfluences] = useState((plan.confluences ?? []).join(", "));
+  const [ruleBreaks, setRuleBreaks] = useState((plan.ruleBreaks ?? []).join(", "));
   const [error, setError] = useState("");
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -775,6 +881,13 @@ function ExecutionModal({ plan, onClose, onSave }: { plan: Trade; onClose: () =>
       setError("R multiple must be a valid number.");
       return;
     }
+    const parsedMae = maeR.trim() ? Number(maeR) : null;
+    const parsedMfe = mfeR.trim() ? Number(mfeR) : null;
+    if ([parsedMae, parsedMfe].some((value) => value !== null && (!Number.isFinite(value) || value < 0))) {
+      setError("MAE and MFE must be zero or positive R values.");
+      return;
+    }
+    const splitList = (value: string) => Array.from(new Set(value.split(",").map((item) => item.trim()).filter(Boolean))).slice(0, 30);
     const date = new Date().toISOString();
     const outcome: TradeOutcome = wasClosed ? parsedPnl > 0 ? "Win" : parsedPnl < 0 ? "Loss" : "Flat" : !isClosed ? "Open" : parsedPnl > 0 ? "Win" : parsedPnl < 0 ? "Loss" : "Flat";
     const journalEntry: TradeJournalEntry = {
@@ -796,6 +909,12 @@ function ExecutionModal({ plan, onClose, onSave }: { plan: Trade; onClose: () =>
       size: parsedSize ?? plan.size ?? null,
       setupNotes: setupNotes.trim(),
       setupEmotion,
+      setupName: setupName.trim(),
+      maeR: parsedMae,
+      mfeR: parsedMfe,
+      emotionalState: emotionalState.trim() || null,
+      confluences: splitList(confluences),
+      ruleBreaks: splitList(ruleBreaks),
       journalEntries: [...(plan.journalEntries ?? []), journalEntry],
       source: plan.source === "mt5" ? "mt5" : "manual",
     });
@@ -812,6 +931,11 @@ function ExecutionModal({ plan, onClose, onSave }: { plan: Trade; onClose: () =>
       {!wasClosed && plan.source !== "mt5" && <label className="checkbox-label"><input type="checkbox" checked={isClosed} onChange={(event) => setIsClosed(event.target.checked)} /> This exposure is closed</label>}
       {isClosed && <div className="form-row"><label>{plan.source === "mt5" ? "Broker-reported realized P&L" : "Realized P&L"}<input disabled={plan.source === "mt5"} inputMode="decimal" value={pnl} onChange={(event) => setPnl(event.target.value)} placeholder="e.g. 120.00 or -45.00" /></label><label>Exit price <span className="optional-label">Optional</span><input disabled={plan.source === "mt5"} inputMode="decimal" value={exitPrice} onChange={(event) => setExitPrice(event.target.value)} placeholder="e.g. 2353.10" /></label></div>}
       {isClosed && <label>Outcome in R <span className="optional-label">Optional</span><input disabled={plan.source === "mt5"} inputMode="decimal" value={rMultiple} onChange={(event) => setRMultiple(event.target.value)} placeholder="e.g. 1.5" /></label>}
+      <div className="v2-context-fields"><span className="custom-range-label">Performance Agent context</span><div className="form-note v2-optional-note"><Icon name="check" size={16} /><span><strong>Optional.</strong> These fields unlock setup, behavior and exit-efficiency analytics from your own trades.</span></div>
+        <div className="form-row"><label>Setup name<input value={setupName} onChange={(event) => setSetupName(event.target.value)} maxLength={120} placeholder="e.g. London sweep reclaim" /></label><label>Emotional state<select value={emotionalState} onChange={(event) => setEmotionalState(event.target.value)}><option value="">Not recorded</option><option>Calm</option><option>Confident</option><option>Neutral</option><option>Anxious</option><option>Fearful</option><option>Frustrated</option><option>Excited</option><option>Revenge</option><option>FOMO</option></select></label></div>
+        <div className="form-row"><label>MAE (R) <span className="optional-label">Optional</span><input inputMode="decimal" value={maeR} onChange={(event) => setMaeR(event.target.value)} placeholder="Max adverse, e.g. 0.6" /></label><label>MFE (R) <span className="optional-label">Optional</span><input inputMode="decimal" value={mfeR} onChange={(event) => setMfeR(event.target.value)} placeholder="Max favorable, e.g. 2.1" /></label></div>
+        <div className="form-row"><label>Confluences<input value={confluences} onChange={(event) => setConfluences(event.target.value)} placeholder="Comma-separated, e.g. HTF trend, FVG" /></label><label>Rule breaks<input value={ruleBreaks} onChange={(event) => setRuleBreaks(event.target.value)} placeholder="Comma-separated, e.g. moved stop" /></label></div>
+      </div>
       <div className="journal-entry-fields"><span className="custom-range-label">Add a time-stamped journal update</span><div className="form-row"><label>How are you feeling now?<select value={emotion} onChange={(event) => setEmotion(event.target.value)}><option>Neutral</option><option>Calm</option><option>Confident</option><option>Anxious</option><option>Fearful</option><option>Frustrated</option><option>Excited</option><option>Other</option></select></label><label>What is happening?<textarea value={journalNote} onChange={(event) => setJournalNote(event.target.value)} placeholder="Describe your execution, emotion, or management decision..." rows={2} /></label></div></div>
       {(plan.journalEntries ?? []).length > 0 && <div className="journal-timeline"><span className="custom-range-label">Journal timeline</span>{plan.journalEntries?.slice().reverse().map((entry) => <article className="journal-timeline-entry" key={entry.id}><strong>{entry.stage} · {entry.emotion}</strong><time>{formatTradeDate(entry.date)}</time>{entry.note && <p>{entry.note}</p>}</article>)}</div>}
       {error && <p className="form-error" role="alert">{error}</p>}
@@ -858,7 +982,11 @@ function isWorkspace(value: unknown): value is SavedWorkspace {
   return validTrades && validReviews && validAccounts;
 }
 
-function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, accounts, viewIds, onToggleView, onClearView, onTimezoneChange, onQuickCapture, onNavigate, onReviewStart, onRecordFill, onManageTrade, onDiscardPlan, onOpenAccountSetup, onConnectAccount, onRevokeAccount, onDeleteAccount, onEditAccount, onExport, onImportCsv }: { view: ViewId; trades: Trade[]; reviews: TradeReview[]; reviewedIds: string[]; timezone: string; dateRange: DashboardDateRange; accounts: AccountSetup[]; viewIds: string[]; onToggleView: (id: string) => void; onClearView: () => void; onTimezoneChange: (timezone: string) => void; onQuickCapture: () => void; onNavigate: (view: ViewId) => void; onReviewStart: (trade: Trade) => void; onRecordFill: (trade: Trade) => void; onManageTrade: (trade: Trade) => void; onDiscardPlan: (tradeId: string) => void; onOpenAccountSetup: () => void; onConnectAccount: (account: AccountSetup) => void; onSyncAccount: (account: AccountSetup) => void; onRevokeAccount: (account: AccountSetup) => void; onDeleteAccount: (account: AccountSetup) => void; onEditAccount: (account: AccountSetup) => void; onRefreshAccount: (account: AccountSetup) => void; onExport: (trades: Trade[]) => void; onImportCsv: (file: File) => void }) {
+function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, accounts, viewIds, onToggleView, onClearView, onTimezoneChange, onQuickCapture, onNavigate, onReviewStart, onRecordFill, onManageTrade, onDiscardPlan, onOpenAccountSetup, onConnectAccount, onRevokeAccount, onDeleteAccount, onEditAccount, onExport, onImportCsv, onBulkStrategy }: { view: ViewId; trades: Trade[]; reviews: TradeReview[]; reviewedIds: string[]; timezone: string; dateRange: DashboardDateRange; accounts: AccountSetup[]; viewIds: string[]; onToggleView: (id: string) => void; onClearView: () => void; onTimezoneChange: (timezone: string) => void; onQuickCapture: () => void; onNavigate: (view: ViewId) => void; onReviewStart: (trade: Trade) => void; onRecordFill: (trade: Trade) => void; onManageTrade: (trade: Trade) => void; onDiscardPlan: (tradeId: string) => void; onOpenAccountSetup: () => void; onConnectAccount: (account: AccountSetup) => void; onSyncAccount: (account: AccountSetup) => void; onRevokeAccount: (account: AccountSetup) => void; onDeleteAccount: (account: AccountSetup) => void; onEditAccount: (account: AccountSetup) => void; onRefreshAccount: (account: AccountSetup) => void; onExport: (trades: Trade[]) => void; onImportCsv: (file: File) => void; onBulkStrategy: (ids: string[], strategy: string) => Promise<void> }) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkStrategy, setBulkStrategy] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All trades");
   const filteredTrades = useMemo(() => trades.filter((trade) => {
@@ -868,14 +996,15 @@ function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, 
   }), [filter, search, trades]);
 
   if (view === "overview") {
-    return <OverviewContent accounts={viewIds.length ? accounts.filter((item) => viewIds.includes(item.id)) : accounts} trades={trades} reviewedIds={reviewedIds} dateRange={dateRange} onQuickCapture={onQuickCapture} onNavigate={onNavigate} />;
+    return <OverviewContent accounts={viewIds.length ? accounts.filter((item) => viewIds.includes(item.id)) : accounts} trades={trades} reviewedIds={reviewedIds} dateRange={dateRange} timezone={timezone} accountId={viewIds.length === 1 ? viewIds[0] : null} reviews={reviews} onQuickCapture={onQuickCapture} onNavigate={onNavigate} />;
   }
   if (view === "journal") {
     return <div className="content-stack">
       <section className="panel">
         <div className="panel-heading journal-toolbar"><div><span className="eyebrow">EXECUTION RECORD</span><h2>All trades</h2><p>Terminal facts and your notes stay distinct.</p></div><div className="toolbar-actions"><label className="button button-outline file-button"><Icon name="upload" size={16} /> Import CSV<input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportCsv(file); event.currentTarget.value = ""; }} /></label><button className="button button-outline" onClick={() => onExport(filteredTrades)}><Icon name="upload" size={16} /> Export CSV</button><button className="button button-primary" onClick={onQuickCapture}><Icon name="plus" size={17} /> New plan</button></div></div>
         <div className="table-controls"><label className="search-field"><Icon name="search" size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search symbol or strategy" /></label><label className="select-control"><Icon name="filter" size={17} /><select value={filter} onChange={(event) => setFilter(event.target.value)}><option>All trades</option><option>Win</option><option>Loss</option><option>Flat</option><option>Open</option><option>Planned</option><option>Discarded</option></select></label></div>
-        <TradeTable trades={filteredTrades} onManageTrade={onManageTrade} />
+        {selected.length > 0 && <BulkBar trades={trades.filter((trade) => selected.includes(trade.id))} strategy={bulkStrategy} busy={bulkBusy} askOpen={askOpen} onStrategy={setBulkStrategy} onAsk={() => setAskOpen((open) => !open)} onClear={() => setSelected([])} onApply={async () => { setBulkBusy(true); await onBulkStrategy(selected, bulkStrategy.trim()); setBulkBusy(false); setBulkStrategy(""); setSelected([]); }} />}
+        <TradeTable trades={filteredTrades} onManageTrade={onManageTrade} selected={selected} onToggleSelect={(id) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} />
       </section>
     </div>;
   }
@@ -883,7 +1012,7 @@ function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, 
     const plans = trades.filter((trade) => trade.outcome === "Planned");
     return <div className="content-stack"><section className="panel">
       <div className="panel-heading"><div><span className="eyebrow">TRADER INTENT</span><h2>Plans before fills</h2><p>Unfilled ideas are not counted as executed trades.</p></div><button className="button button-primary" onClick={onQuickCapture}><Icon name="plus" size={17} /> New plan</button></div>
-      {plans.length ?       <div className="plan-list">{plans.map((plan) => <article className="plan-card" key={plan.id}><div className={`plan-direction ${plan.direction.toLowerCase()}`}>{plan.direction === "Long" ? "↗" : "↘"}</div><div className="plan-main"><div className="plan-topline"><strong>{plan.symbol}</strong><span>{formatTradeDate(plan.date)}</span></div><p>{plan.plan}</p><div className="plan-meta"><span>{plan.strategy}</span><OutcomeBadge outcome="Planned" /></div><div className="plan-actions"><button className="button button-primary" onClick={() => onRecordFill(plan)}>Record fill</button><button className="button button-quiet" onClick={() => onDiscardPlan(plan.id)}>Discard idea</button></div></div></article>)}</div> : <div className="empty-state spacious">No open plans yet. Capture an idea before you enter your next trade.</div>}
+      {plans.length ?       <div className="plan-list">{plans.map((plan) => <article className="plan-card" key={plan.id}><div className={`plan-direction ${plan.direction.toLowerCase()}`}>{plan.direction === "Long" ? "↗" : "↘"}</div><div className="plan-main"><div className="plan-topline"><strong>{plan.symbol}</strong><span>{formatTradeDate(plan.date)}</span></div><p>{plan.plan}</p><div className="plan-meta"><span>{plan.strategy}</span><OutcomeBadge outcome="Planned" />{(() => { const past = trades.filter((item) => item.strategy === plan.strategy && (item.outcome === "Win" || item.outcome === "Loss" || item.outcome === "Flat")); const r = past.flatMap((item) => item.rMultiple === null ? [] : [item.rMultiple]); return <span className="plan-stats">{past.length ? `${past.length} past trades · ${Math.round(past.filter((item) => item.outcome === "Win").length / past.length * 100)}% win${r.length ? ` · ${fmtR(r.reduce((t, v) => t + v, 0) / r.length)} avg` : ""}` : "No history for this strategy yet"}</span>; })()}</div><div className="plan-actions"><button className="button button-primary" onClick={() => onRecordFill(plan)}>Record fill</button><button className="button button-quiet" onClick={() => onDiscardPlan(plan.id)}>Discard idea</button></div></div></article>)}</div> : <div className="empty-state spacious">No open plans yet. Capture an idea before you enter your next trade.</div>}
     </section></div>;
   }
   if (view === "reviews") {
@@ -896,7 +1025,17 @@ function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, 
           {review && <div className="saved-review"><span>PLAN ADHERENCE · {review.planAdherence.toUpperCase()}</span><p>{review.learning}</p><strong>Next action: {review.nextAction}</strong></div>}
         </article>;
       })}</div>
-    </section><section className="callout-panel"><div className="callout-icon"><Icon name="check" /></div><div><strong>Make the review useful, not long.</strong><p>Capture what happened, whether the plan held, and one next action. Process quality is not the same as P&amp;L.</p></div></section></div>;
+    </section><ReviewsAgent accountId={viewIds.length === 1 ? viewIds[0] : null} dateRange={dateRange} timezone={timezone} /><section className="callout-panel"><div className="callout-icon"><Icon name="check" /></div><div><strong>Make the review useful, not long.</strong><p>Capture what happened, whether the plan held, and one next action. Process quality is not the same as P&amp;L.</p></div></section></div>;
+  }
+  if (view === "strategies" || view === "risk" || view === "roadmap") {
+    const ordered = trades.filter((trade) => matchesDateRange(trade.date, dateRange) && trade.rMultiple !== null).sort((x, y) => x.date.localeCompare(y.date)).map((trade) => trade.rMultiple as number);
+    return <ScopedLab view={view} accountId={viewIds.length === 1 ? viewIds[0] : null} dateRange={dateRange} timezone={timezone} rValues={ordered} />;
+  }
+  if (view === "execution") return <ExecutionLab trades={trades.filter((trade) => matchesDateRange(trade.date, dateRange))} />;
+  if (view === "reports") return <ReportsPage accountId={viewIds.length === 1 ? viewIds[0] : null} timezone={timezone} />;
+  if (view === "intelligence") {
+    const closedR = trades.filter((trade) => matchesDateRange(trade.date, dateRange)).flatMap((trade) => trade.rMultiple === null ? [] : [trade.rMultiple]);
+    return <IntelligencePage accountId={viewIds.length === 1 ? viewIds[0] : null} dateRange={dateRange} timezone={timezone} rValues={closedR} />;
   }
   if (view === "analytics") {
     const summary = summarizeTrades(trades);
@@ -908,6 +1047,7 @@ function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, 
     return <div className="content-stack">
       <section className="stats-grid analytics-stats"><MetricCard label="Net P&L" value={formatMoney(summary.netPnl)} change={`${summary.closed.length} closed trades`} positive={summary.netPnl >= 0} /><MetricCard label="Win rate" value={`${summary.winRate.toFixed(1)}%`} change={`${summary.wins.length} wins · ${summary.losses.length} losses`} /><MetricCard label="Profit factor" value={summary.profitFactor === null ? "—" : summary.profitFactor.toFixed(2)} change="Gross profit ÷ gross loss" /><MetricCard label="Avg. R multiple" value={summary.averageR === null ? "—" : `${summary.averageR >= 0 ? "+" : ""}${summary.averageR.toFixed(2)}R`} change="Only trades with recorded R" positive={summary.averageR !== null && summary.averageR >= 0} /></section>
       <PnlCalendar trades={trades} timezone={timezone} onTimezoneChange={onTimezoneChange} />
+      <section className="panel intelligence-link"><div><span className="eyebrow">EDGE INTELLIGENCE</span><h2>Edge Intelligence</h2><p>Strategy ranking, time and behavior analysis, MAE/MFE and your roadmap now have their own page.</p></div><button className="button button-primary" onClick={() => onNavigate("intelligence")}>Open Edge Intelligence <Icon name="arrow" size={15} /></button></section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">OUTCOMES, WITH CONTEXT</span><h2>Cumulative P&amp;L</h2><p>Calculated from closed records in this browser workspace.</p></div></div><PerformanceChart period="30D" trades={trades} /></section>
       <section className="panel"><div className="panel-heading"><div><span className="eyebrow">PROCESS BREAKDOWN</span><h2>Performance by strategy</h2><p>Recorded outcomes are descriptive and do not establish causation.</p></div></div>{strategyRows.length ? <div className="strategy-list">{strategyRows.map((row) => <StrategyBar key={row.name} name={row.name} trades={`${row.count} ${row.count === 1 ? "trade" : "trades"}`} value={Math.max(4, Math.abs(row.pnl) / largestStrategyPnl * 100)} result={formatMoney(row.pnl)} positive={row.pnl >= 0} />)}</div> : <div className="empty-state">Close a trade to begin building strategy analytics.</div>}</section>
     </div>;
@@ -1004,7 +1144,105 @@ function DashboardDateRangePicker({ value, onChange }: { value: DashboardDateRan
   </div>;
 }
 
-function OverviewContent({ accounts, trades, reviewedIds, dateRange, onQuickCapture, onNavigate }: { accounts: AccountSetup[]; trades: Trade[]; reviewedIds: string[]; dateRange: DashboardDateRange; onQuickCapture: () => void; onNavigate: (view: ViewId) => void }) {
+type TimelineEvent = { kind: string; label: string; source: string; at: string; detail: Record<string, number | string | null> };
+
+function ExecutionTimeline({ tradeId }: { tradeId: string }) {
+  const [state, setState] = useState<{ loading: boolean; error: string; events: TimelineEvent[]; terminal: boolean }>({ loading: true, error: "", events: [], terminal: false });
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const result = await apiRequest<{ events: TimelineEvent[]; has_terminal_data: boolean }>(`/performance/execution-timeline/${tradeId}`);
+        if (!cancelled) setState({ loading: false, error: "", events: result.events, terminal: result.has_terminal_data });
+      } catch {
+        if (!cancelled) setState({ loading: false, error: "Timeline unavailable for this trade.", events: [], terminal: false });
+      }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, [tradeId]);
+  if (state.loading) return <p className="muted-small">Loading timeline…</p>;
+  if (state.error) return <p className="muted-small">{state.error}</p>;
+  if (!state.events.length) return <p className="muted-small">No terminal orders, deals or events are linked to this trade. Manually logged trades show only what you recorded.</p>;
+  return <ol className="exec-timeline">{state.events.map((event, index) => <li key={`${event.at}-${index}`}><time>{new Date(event.at).toLocaleString()}</time><strong>{event.label}</strong><span className="muted-small">{event.kind} · {event.source}{Object.entries(event.detail).filter(([, value]) => value !== null && typeof value !== "object").map(([key, value]) => ` · ${key.replaceAll("_", " ")} ${value}`).join("")}</span></li>)}{!state.terminal && <li className="muted-small">No MT5 orders or deals are linked, so this is limited to journal events.</li>}</ol>;
+}
+
+function ExecutionLab({ trades }: { trades: Trade[] }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const rows = trades.filter((trade) => trade.pnl !== null).map((trade) => {
+    const { entryPrice: entry, stopLoss: stop, takeProfit: target } = trade;
+    const risk = entry != null && stop != null ? Math.abs(entry - stop) : null;
+    const plannedR = risk && target != null && entry != null ? Math.abs(target - entry) / risk : null;
+    const capture = plannedR && trade.rMultiple !== null ? trade.rMultiple / plannedR : null;
+    const leftOnTable = trade.mfeR != null && trade.rMultiple !== null ? trade.mfeR - trade.rMultiple : null;
+    const hasPlan = risk !== null && risk > 0;
+    return { trade, plannedR, capture, leftOnTable, hasPlan, breaks: trade.ruleBreaks?.length ?? 0 };
+  });
+  const planned = rows.filter((row) => row.hasPlan);
+  const withCapture = rows.filter((row) => row.capture !== null);
+  const withExit = rows.filter((row) => row.leftOnTable !== null);
+  const avg = (values: number[]) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : null);
+  const clean = rows.filter((row) => row.breaks === 0).length;
+  const stats: Array<[string, string, string]> = [
+    ["Trades with a defined plan", `${planned.length}/${rows.length}`, "entry and stop recorded"],
+    ["Average planned R:R", avg(planned.flatMap((row) => (row.plannedR === null ? [] : [row.plannedR]))) === null ? "—" : `${avg(planned.flatMap((row) => (row.plannedR === null ? [] : [row.plannedR])))!.toFixed(2)}R`, "target distance ÷ stop distance"],
+    ["Average target capture", avg(withCapture.map((row) => row.capture as number)) === null ? "—" : `${Math.round(avg(withCapture.map((row) => row.capture as number))! * 100)}%`, "realised R ÷ planned R"],
+    ["Average R left after exit", avg(withExit.map((row) => row.leftOnTable as number)) === null ? "—" : `${avg(withExit.map((row) => row.leftOnTable as number))!.toFixed(2)}R`, `from ${withExit.length} trades with recorded MFE`],
+    ["Rule-clean trades", rows.length ? `${Math.round((clean / rows.length) * 100)}%` : "—", "no rule break recorded"],
+  ];
+  return <div className="content-stack">
+    <section className="panel intelligence-workspace intelligence-metrics">{stats.map(([label, value, note]) => <div key={label}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>)}</section>
+    <section className="panel intelligence-workspace">
+      <div className="subsection-heading"><div><span className="eyebrow">PLANNED VS ACTUAL</span><h3>Execution by trade</h3></div></div>
+      <div className="table-scroll"><table className="trade-table">
+        <thead><tr><th>Trade</th><th>Planned R:R</th><th>Realised R</th><th>Capture</th><th>R left (MFE)</th><th>Rule breaks</th><th><span className="sr-only">Timeline</span></th></tr></thead>
+        <tbody>{rows.slice(0, 50).map(({ trade, plannedR, capture, leftOnTable, breaks }) => <Fragment key={trade.id}><tr>
+          <td><strong>{trade.symbol}</strong><small> {trade.direction} · {trade.strategy}</small></td>
+          <td>{plannedR === null ? "—" : plannedR.toFixed(2)}</td>
+          <td>{trade.rMultiple === null ? "—" : `${trade.rMultiple.toFixed(2)}R`}</td>
+          <td>{capture === null ? "—" : `${Math.round(capture * 100)}%`}</td>
+          <td>{leftOnTable === null ? "—" : `${leftOnTable.toFixed(2)}R`}</td>
+          <td>{breaks ? trade.ruleBreaks?.join(", ") : "None recorded"}</td>
+        <td><button type="button" className="button button-outline table-journal-button" aria-expanded={openId === trade.id} onClick={() => setOpenId(openId === trade.id ? null : trade.id)}>{openId === trade.id ? "Hide" : "Timeline"}</button></td></tr>{openId === trade.id && <tr><td colSpan={7}><ExecutionTimeline tradeId={trade.id} /></td></tr>}</Fragment>)}</tbody>
+      </table>{!rows.length && <div className="empty-state">Close and journal trades with entry, stop and target to compare plan against execution.</div>}</div>
+      <p className="muted-small">Only values you or your terminal recorded are used. Missing entry, stop, target or MFE shows as “—” and is never estimated.</p>
+    </section>
+  </div>;
+}
+
+function ScopedLab({ view, accountId, dateRange, timezone, rValues }: { view: "strategies" | "risk" | "roadmap"; accountId: string | null; dateRange: DashboardDateRange; timezone: string; rValues: number[] }) {
+  const data = usePerformanceData(accountId, dateRange, timezone);
+  if (data.loading) return <div className="panel"><div className="intelligence-loading" /></div>;
+  if (data.error) return <p className="form-error" role="alert">{data.error}</p>;
+  if (view === "strategies") return <StrategyLab data={data} />;
+  if (view === "risk") return <RiskIntelligence data={data} rValues={rValues} accountId={accountId} />;
+  return <DevelopmentRoadmap data={data} />;
+}
+
+function IntelligencePage({ accountId, dateRange, timezone, rValues }: { accountId: string | null; dateRange: DashboardDateRange; timezone: string; rValues: number[] }) {
+  const data = usePerformanceData(accountId, dateRange, timezone);
+  const [askOpen, setAskOpen] = useState(false);
+  const pm = data.metrics;
+  const questions = [
+    ["What is happening?", `${pm?.trade_count ?? 0} closed trades in scope`],
+    ["What does my data reveal?", pm ? `Expectancy ${fmtR(pm.expectancy_r)}` : "Loading…"],
+    ["What should I work on?", data.roadmap?.recommendations[0]?.focus ?? "Keep logging trades"],
+    ["Am I improving?", data.roadmap?.id ? `Roadmap: ${data.roadmap.progress_status.replace("_", " ")}` : "Save a roadmap to track progress"],
+  ];
+  return <div className="content-stack">
+    <section className="question-row">{questions.map(([title, answer]) => <article className="question-card" key={title}><span>{title}</span><strong>{answer}</strong></article>)}</section>
+    <EdgeSnapshot data={data} onViewAnalysis={() => undefined} onAsk={() => setAskOpen(true)} hideViewLink />
+    {askOpen && <AskAgentPanel data={data} onClose={() => setAskOpen(false)} />}
+    <AnalyticsWorkspace data={data} rValues={rValues} />
+  </div>;
+}
+
+function ReviewsAgent({ accountId, dateRange, timezone }: { accountId: string | null; dateRange: DashboardDateRange; timezone: string }) {
+  const data = usePerformanceData(accountId, dateRange, timezone);
+  return <section className="panel"><div className="panel-heading"><div><span className="eyebrow">WEEKLY AGENT REPORT</span><h2>What to carry into your next review</h2><p>Generated from your own records. Save it to track progress.</p></div></div>{data.loading ? <div className="intelligence-loading" /> : <RoadmapWidget data={data} />}</section>;
+}
+
+function OverviewContent({ accounts, trades, reviewedIds, dateRange, timezone, accountId, reviews, onQuickCapture, onNavigate }: { accounts: AccountSetup[]; trades: Trade[]; reviewedIds: string[]; dateRange: DashboardDateRange; timezone: string; accountId: string | null; reviews: TradeReview[]; onQuickCapture: () => void; onNavigate: (view: ViewId) => void }) {
   const rangeTrades = useMemo(() => trades.filter((trade) => matchesDateRange(trade.date, dateRange)), [dateRange, trades]);
   const summary = summarizeTrades(rangeTrades);
   const reviewCount = summary.closed.filter((trade) => !reviewedIds.includes(trade.id)).length;
@@ -1012,6 +1250,13 @@ function OverviewContent({ accounts, trades, reviewedIds, dateRange, onQuickCapt
   const nextReview = rangeTrades.find((trade) =>
     (trade.outcome === "Win" || trade.outcome === "Loss" || trade.outcome === "Flat") && !reviewedIds.includes(trade.id),
   );
+  const perf = usePerformanceData(accountId, dateRange, timezone);
+  const [askOpen, setAskOpen] = useState(false);
+  const pm = perf.metrics;
+  const closedIds = new Set(summary.closed.map((trade) => trade.id));
+  const closedReviews = reviews.filter((review) => closedIds.has(review.tradeId));
+  const adherence = closedReviews.length ? Math.round((closedReviews.filter((review) => review.planAdherence === "yes").length / closedReviews.length) * 100) : 0;
+  const completeness = summary.closed.length ? Math.round((summary.closed.filter((trade) => Boolean(trade.setupNotes?.trim() || trade.emotionalState) && Boolean(trade.strategy)).length / summary.closed.length) * 100) : 0;
   const live = accounts.filter((item) => item.provider === "MT5" && item.equity != null);
   const liveBalance = live.reduce((sum, item) => sum + (item.balance ?? 0), 0);
   const liveEquity = live.reduce((sum, item) => sum + (item.equity ?? 0), 0);
@@ -1025,21 +1270,26 @@ function OverviewContent({ accounts, trades, reviewedIds, dateRange, onQuickCapt
         <MetricCard label="Floating P&L" value={formatMoney(liveEquity - liveBalance)} change="Open positions, live" positive={liveEquity >= liveBalance} icon="target" />
         <MetricCard label="Open positions" value={String(livePositions)} change="Synced from MT5" icon="check" />
       </section>}
-      <section className="stats-grid">
-        <MetricCard label="Net P&L" value={formatMoney(summary.netPnl)} change={`${summary.closed.length} closed trades · ${dashboardRangeLabel(dateRange)}`} positive={summary.netPnl >= 0} icon="chart" />
-        <MetricCard label="Win rate" value={`${summary.winRate.toFixed(1)}%`} change={`${summary.wins.length} wins · ${summary.losses.length} losses`} icon="target" />
-        <MetricCard label="Profit factor" value={summary.profitFactor === null ? "—" : summary.profitFactor.toFixed(2)} change="Gross profit ÷ gross loss" icon="wallet" />
+      <section className="stats-grid metrics-five">
+        <MetricCard label="Net P&L" value={formatMoney(summary.netPnl)} change={`${summary.closed.length} closed trades${summary.averageR === null ? "" : ` · ${fmtR(summary.averageR * summary.closed.filter((trade) => trade.rMultiple !== null).length)}`} · ${dashboardRangeLabel(dateRange)}`} positive={summary.netPnl >= 0} icon="chart" />
+        <MetricCard label="Win rate" value={`${summary.winRate.toFixed(1)}%`} change={`Sample: ${summary.closed.length} trades · ${summary.wins.length}W ${summary.losses.length}L`} icon="target" />
+        <MetricCard label="Profit factor" tone={profitFactorTone(summary.profitFactor)} value={summary.profitFactor === null ? "—" : summary.profitFactor.toFixed(2)} change="Gross profit ÷ gross loss" icon="wallet" />
+        <MetricCard label="Expectancy" value={fmtR(pm?.expectancy_r)} change={pm ? `Average edge per trade · ${pm.r_sample_count} with R` : "Average edge per trade"} positive={(pm?.expectancy_r ?? 0) > 0} icon="target" />
         <MetricCard label="Review coverage" value={`${coverage}%`} change={`${reviewedIds.filter((id) => summary.closed.some((trade) => trade.id === id)).length} of ${summary.closed.length} closed trades`} icon="check" />
       </section>
+      <EdgeSnapshot data={perf} onViewAnalysis={() => onNavigate("intelligence")} onAsk={() => setAskOpen(true)} />
+      {askOpen && <AskAgentPanel data={perf} onClose={() => setAskOpen(false)} />}
       <section className="overview-grid">
         <div className="panel performance-panel">
           <div className="panel-heading"><div><span className="eyebrow">PERFORMANCE</span><h2>Results over time</h2><p>Profit is an outcome, not a process score.</p></div><span className="chart-subtitle">{dashboardRangeLabel(dateRange).toUpperCase()} · USD</span></div>
           <ChartState trades={rangeTrades} />
         </div>
         <div className="panel coverage-panel">
-          <div className="panel-heading"><div><span className="eyebrow">DECISION COVERAGE</span><h2>Close the loop</h2></div><button className="icon-button" aria-label="More coverage options"><Icon name="more" /></button></div>
+          <div className="panel-heading"><div><span className="eyebrow">PROCESS SCORE</span><h2>Close the loop</h2></div><button className="icon-button" aria-label="More coverage options"><Icon name="more" /></button></div>
           <div className="coverage-meter"><div className="coverage-ring" style={{ background: `conic-gradient(#b78a3a 0 ${coverage}%, #eeeae1 ${coverage}% 100%)` }}><div><strong>{coverage}<span>%</span></strong><small>reviewed</small></div></div><div className="coverage-copy"><strong>{reviewCount ? "Keep the review habit" : "All caught up"}</strong><p>Review coverage counts closed journal records with a completed reflection.</p></div></div>
           <div className="coverage-legend"><span><i className="legend-complete" /> Reviewed <strong>{summary.closed.length - reviewCount}</strong></span><span><i className="legend-open" /> To review <strong>{reviewCount}</strong></span></div>
+          <div className="process-bars"><div><span>Rule adherence</span><div className="progress-track"><span style={{ width: `${adherence}%` }} /></div><b>{adherence}%</b></div><div><span>Journal completeness</span><div className="progress-track"><span style={{ width: `${completeness}%` }} /></div><b>{completeness}%</b></div></div>
+          {perf.insights[0] && <p className="process-insight">{perf.insights[0].text}</p>}
           <button className="text-link" onClick={() => onNavigate("reviews")}>Open review queue <Icon name="arrow" size={15} /></button>
         </div>
       </section>
@@ -1063,16 +1313,20 @@ function OverviewContent({ accounts, trades, reviewedIds, dateRange, onQuickCapt
 
 function ChartState({ trades }: { trades: Trade[] }) {
   const [period, setPeriod] = useState("30D");
+  const [mode, setMode] = useState<"pnl" | "r">("pnl");
+  const [showDd, setShowDd] = useState(true);
   const summary = summarizeTrades(trades);
-  return <><PerformanceChart period={period} trades={trades} /><div className="chart-footer"><span><i className="chart-legend-dot" /> Net cumulative P&amp;L</span><strong className={summary.netPnl >= 0 ? "positive" : "negative"}>{formatMoney(summary.netPnl)}</strong></div><PeriodState period={period} setPeriod={setPeriod} /></>;
+  const shown = useMemo(() => mode === "pnl" ? trades : trades.filter((trade) => trade.rMultiple !== null).map((trade) => ({ ...trade, pnl: trade.rMultiple })), [mode, trades]);
+  const totalR = shown.reduce((total, trade) => total + (trade.pnl ?? 0), 0);
+  return <><div className="period-toggle" role="group" aria-label="Chart metric">{(["pnl", "r"] as const).map((item) => <button type="button" key={item} className={mode === item ? "active" : ""} aria-pressed={mode === item} onClick={() => setMode(item)}>{item === "pnl" ? "Net P&L" : "Cumulative R"}</button>)}</div><label className="chart-overlay-toggle"><input type="checkbox" checked={showDd} onChange={(event) => setShowDd(event.target.checked)} /> Shade drawdowns</label><PerformanceChart period={period} trades={shown} showDrawdown={showDd} unit={mode === "r" ? "r" : "money"} /><div className="chart-footer"><span><i className="chart-legend-dot" /> {mode === "pnl" ? "Net cumulative P&L" : "Cumulative R (recorded only)"}</span><strong className={(mode === "pnl" ? summary.netPnl : totalR) >= 0 ? "positive" : "negative"}>{mode === "pnl" ? formatMoney(summary.netPnl) : fmtR(totalR)}</strong></div><PeriodState period={period} setPeriod={setPeriod} /></>;
 }
 
 function PeriodState({ period, setPeriod }: { period: string; setPeriod: (period: string) => void }) {
   return <div className="period-toggle" role="group" aria-label="Chart time range">{["7D", "30D", "90D"].map((item) => <button type="button" key={item} className={period === item ? "active" : ""} aria-pressed={period === item} onClick={() => setPeriod(item)}>{item}</button>)}</div>;
 }
 
-function MetricCard({ label, value, change, positive = false, icon }: { label: string; value: string; change: string; positive?: boolean; icon?: string }) {
-  return <article className="metric-card"><div className="metric-topline"><span>{label}</span>{icon && <span className="metric-icon"><Icon name={icon} size={17} /></span>}</div><strong className="metric-value">{value}</strong><div className={`metric-change ${positive ? "positive" : ""}`}><span className={positive ? "trend-up" : "trend-neutral"}>{positive ? "↗" : "•"}</span>{change}</div></article>;
+function MetricCard({ label, value, change, positive = false, icon, tone = "" }: { label: string; value: string; change: string; positive?: boolean; icon?: string; tone?: string }) {
+  return <article className="metric-card"><div className="metric-topline"><span>{label}</span>{icon && <span className="metric-icon"><Icon name={icon} size={17} /></span>}</div><strong className={`metric-value ${tone}`}>{value}</strong><div className={`metric-change ${positive ? "positive" : ""}`}><span className={positive ? "trend-up" : "trend-neutral"}>{positive ? "↗" : "•"}</span>{change}</div></article>;
 }
 
 function StrategyBar({ name, trades, value, result, positive }: { name: string; trades: string; value: number; result: string; positive: boolean }) {
@@ -1479,8 +1733,11 @@ export default function Home() {
       const isPlan = activePlan?.outcome === "Planned";
       const existing = isPlan ? null : activePlan;
       const updatePayload = existing?.source === "mt5"
-        ? { notes: executedTrade.plan }
+        ? { notes: executedTrade.plan, ...v2Context(executedTrade) }
         : {
+            ...v2Context(executedTrade),
+            take_profit: executedTrade.takeProfit,
+            stop_loss: executedTrade.stopLoss,
             outcome: executedTrade.outcome.toLowerCase(),
             pnl: executedTrade.pnl,
             r_multiple: executedTrade.rMultiple,
@@ -1508,6 +1765,9 @@ export default function Home() {
               exit_price: executedTrade.exitPrice,
               size: executedTrade.size,
               notes: executedTrade.plan,
+              ...v2Context(executedTrade),
+              stop_loss: executedTrade.stopLoss,
+              take_profit: executedTrade.takeProfit,
               opened_at: executedTrade.date,
               closed_at: ["Win", "Loss", "Flat"].includes(executedTrade.outcome)
                 ? new Date().toISOString()
@@ -1547,6 +1807,21 @@ export default function Home() {
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Could not save the trade journal.");
     }
+    window.setTimeout(() => setNotice(""), 5000);
+  }
+
+  async function bulkStrategy(ids: string[], strategy: string) {
+    if (!strategy) return;
+    setActionError("");
+    const results = await Promise.allSettled(ids.map((id) => apiRequest<ApiTrade>(`/trades/${id}`, { method: "PATCH", body: JSON.stringify({ strategy }) })));
+    const updated = new Map<string, Trade>();
+    results.forEach((result, index) => { if (result.status === "fulfilled") updated.set(ids[index], mapApiTrade(result.value)); });
+    setTrades((current) => current.map((trade) => {
+      const next = updated.get(trade.id);
+      return next ? { ...next, journalEntries: trade.journalEntries } : trade;
+    }));
+    const failed = ids.length - updated.size;
+    setNotice(failed ? `Tagged ${updated.size} trades; ${failed} could not be updated.` : `Tagged ${updated.size} trades as "${strategy}".`);
     window.setTimeout(() => setNotice(""), 5000);
   }
 
@@ -1900,7 +2175,7 @@ export default function Home() {
         <AppLogo />
         <div className="workspace-switcher"><div className="workspace-avatar">{userFirstName(apiUser).slice(0, 1)}</div><div><strong>{userFirstName(apiUser)}</strong><span>Personal workspace</span></div><Icon name="chevron" size={16} /></div>
         <span className="nav-section-label">WORKSPACE</span>
-        <nav className="primary-nav" aria-label="Main navigation">{navigation.map((item) => <button key={item.id} aria-label={item.label} title={item.label} className={`nav-item ${view === item.id ? "selected" : ""}`} onClick={() => setView(item.id)}><Icon name={item.icon} size={18} /><span>{item.label}</span>{item.id === "reviews" && pendingReviewCount > 0 && <span className="nav-count">{pendingReviewCount}</span>}</button>)}</nav>
+        <nav className="primary-nav" aria-label="Main navigation">{navigation.map((item) => <button key={item.id} aria-label={item.label} title={item.label} className={`nav-item ${view === item.id ? "selected" : ""}`} onClick={() => setView(item.id)}>{(() => { const NavIcon = navIcons[item.id]; return <NavIcon className="nav-icon" size={18} strokeWidth={1.85} aria-hidden="true" />; })()}<span>{item.label}</span>{item.id === "reviews" && pendingReviewCount > 0 && <span className="nav-count">{pendingReviewCount}</span>}</button>)}</nav>
         <div className="sidebar-bottom"><div className="sidebar-help"><span className="help-mark">i</span><div><strong>Built for better reviews</strong><p>Your data, intent, and insights in one place.</p></div></div><button className="profile-button" onClick={() => void signOut()}><div className="profile-avatar">{userFirstName(apiUser).slice(0, 1)}</div><div><strong>{userFirstName(apiUser)}</strong><span>Sign out</span></div><Icon name="more" size={17} /></button></div>
       </aside>
       <main className="main-area">
@@ -1923,7 +2198,7 @@ export default function Home() {
               }).catch(() => undefined);
             }}
           />
-          <ViewContent key={view} view={view} trades={trades} reviews={reviews} reviewedIds={reviewedIds} timezone={timezone} dateRange={dateRange} accounts={accounts} viewIds={scopeIds} onToggleView={toggleView} onClearView={() => saveView([])} onTimezoneChange={(value) => void updateTimezone(value)} onQuickCapture={() => setCaptureOpen(true)} onNavigate={setView} onReviewStart={setActiveReview} onRecordFill={setActivePlan} onManageTrade={setActivePlan} onDiscardPlan={discardPlan} onOpenAccountSetup={() => setAccountSetupOpen(true)} onConnectAccount={connectAccount} onSyncAccount={syncAccount} onRevokeAccount={revokeAccount} onDeleteAccount={setDeletingAccount} onEditAccount={setEditingAccount} onRefreshAccount={refreshAccount} onExport={exportVisibleTrades} onImportCsv={(file) => void importCsvFile(file)} />
+          <ViewContent key={view} view={view} trades={trades} reviews={reviews} reviewedIds={reviewedIds} timezone={timezone} dateRange={dateRange} accounts={accounts} viewIds={scopeIds} onToggleView={toggleView} onClearView={() => saveView([])} onTimezoneChange={(value) => void updateTimezone(value)} onQuickCapture={() => setCaptureOpen(true)} onNavigate={setView} onReviewStart={setActiveReview} onRecordFill={setActivePlan} onManageTrade={setActivePlan} onDiscardPlan={discardPlan} onOpenAccountSetup={() => setAccountSetupOpen(true)} onConnectAccount={connectAccount} onSyncAccount={syncAccount} onRevokeAccount={revokeAccount} onDeleteAccount={setDeletingAccount} onEditAccount={setEditingAccount} onRefreshAccount={refreshAccount} onExport={exportVisibleTrades} onImportCsv={(file) => void importCsvFile(file)} onBulkStrategy={bulkStrategy} />
         </div>
       </main>
       {captureOpen && <QuickCaptureModal onClose={() => setCaptureOpen(false)} onSave={savePlan} />}

@@ -40,7 +40,7 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is invalid or expired"
         )
     user = db.get(User, session.user_id)
-    if user is None:
+    if user is None or user.status != "active":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is invalid or expired"
         )

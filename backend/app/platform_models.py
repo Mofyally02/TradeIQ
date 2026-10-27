@@ -1,18 +1,19 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
 from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
     Numeric,
     Text,
     UniqueConstraint,
-    UUID as SQLUUID,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -155,12 +156,20 @@ class Trade(Base):
     symbol: Mapped[str] = mapped_column(String(32))
     direction: Mapped[str] = mapped_column(String(5))
     strategy: Mapped[str] = mapped_column(String(120), default="Uncategorized")
+    setup: Mapped[str | None] = mapped_column(String(120), nullable=True)
     outcome: Mapped[str] = mapped_column(String(16), default="open")
     pnl: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     r_multiple: Mapped[float | None] = mapped_column(Numeric(12, 6), nullable=True)
     entry_price: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
     exit_price: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
     size: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
+    stop_loss: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
+    take_profit: Mapped[float | None] = mapped_column(Numeric(20, 8), nullable=True)
+    mae_r: Mapped[float | None] = mapped_column(Numeric(12, 6), nullable=True)
+    mfe_r: Mapped[float | None] = mapped_column(Numeric(12, 6), nullable=True)
+    emotional_state: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confluences: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    rule_breaks: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(24), default="user")
     external_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -248,6 +257,92 @@ class RiskProfile(Base):
     max_daily_loss: Mapped[float | None] = mapped_column(Numeric(20, 6), nullable=True)
     max_risk_per_trade: Mapped[float | None] = mapped_column(Numeric(12, 6), nullable=True)
     max_trades_per_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class PerformanceRoadmap(Base):
+    __tablename__ = "performance_roadmaps"
+    __table_args__ = (
+        Index("ix_performance_roadmaps_user_generated", "user_id", "generated_at"),
+        CheckConstraint(
+            "progress_status IN ('pending', 'in_progress', 'completed', 'adjusted')",
+            name="ck_performance_roadmaps_progress_status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[UUID] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("trading_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    trade_count: Mapped[int] = mapped_column(Integer)
+    metrics: Mapped[dict[str, object]] = mapped_column(JSON)
+    recommendations: Mapped[list[dict[str, object]]] = mapped_column(JSON)
+    progress_status: Mapped[str] = mapped_column(String(24), default="pending")
+    progress_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class DevelopmentGoal(Base):
+    __tablename__ = "development_goals"
+    __table_args__ = (
+        Index("ix_development_goals_user_status", "user_id", "status"),
+        CheckConstraint("direction IN ('increase', 'decrease')", name="ck_development_goals_direction"),
+        CheckConstraint(
+            "status IN ('active', 'achieved', 'paused', 'dropped')",
+            name="ck_development_goals_status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[UUID] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(160))
+    metric: Mapped[str] = mapped_column(String(40))
+    direction: Mapped[str] = mapped_column(String(12))
+    baseline_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    baseline_sample: Mapped[int] = mapped_column(Integer, default=0)
+    target_value: Mapped[float] = mapped_column(Float)
+    start_date: Mapped[date] = mapped_column(Date)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class DevelopmentExperiment(Base):
+    __tablename__ = "development_experiments"
+    __table_args__ = (
+        Index("ix_development_experiments_user_status", "user_id", "status"),
+        CheckConstraint(
+            "status IN ('planned', 'running', 'concluded', 'abandoned')",
+            name="ck_development_experiments_status",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[UUID] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    goal_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("development_goals.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    title: Mapped[str] = mapped_column(String(160))
+    hypothesis: Mapped[str] = mapped_column(Text)
+    rule: Mapped[str] = mapped_column(Text)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    min_trades: Mapped[int] = mapped_column(Integer, default=20)
+    status: Mapped[str] = mapped_column(String(16), default="planned")
+    conclusion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
@@ -464,3 +559,122 @@ class DetectedAccount(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")
     payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AdminRole(Base):
+    __tablename__ = "admin_roles"
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    name: Mapped[str] = mapped_column(String(48), unique=True)
+    description: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AdminMfa(Base):
+    __tablename__ = "admin_mfa"
+
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    encrypted_secret: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    failed_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class AdminPermission(Base):
+    __tablename__ = "admin_permissions"
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    key: Mapped[str] = mapped_column(String(80), unique=True)
+    description: Mapped[str] = mapped_column(String(255))
+
+
+class AdminRolePermission(Base):
+    __tablename__ = "admin_role_permissions"
+    __table_args__ = (UniqueConstraint("role_id", "permission_id"),)
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    role_id: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_roles.id", ondelete="CASCADE"), index=True
+    )
+    permission_id: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_permissions.id", ondelete="CASCADE"), index=True
+    )
+
+
+class UserRoleAssignment(Base):
+    __tablename__ = "user_role_assignments"
+    __table_args__ = (
+        UniqueConstraint("user_id", "role_id", "scope_type", "scope_id"),
+        CheckConstraint(
+            "scope_type IN ('platform', 'account')", name="ck_user_role_scope_type"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    role_id: Mapped[UUID] = mapped_column(
+        ForeignKey("admin_roles.id", ondelete="CASCADE"), index=True
+    )
+    scope_type: Mapped[str] = mapped_column(String(16), default="platform")
+    scope_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    assigned_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class AdminAuditLog(Base):
+    __tablename__ = "admin_audit_logs"
+    __table_args__ = (Index("ix_admin_audit_actor_created", "actor_user_id", "created_at"),)
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    action: Mapped[str] = mapped_column(String(80))
+    resource_type: Mapped[str] = mapped_column(String(48))
+    resource_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(24), default="success")
+    details: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class PlatformIncident(Base):
+    __tablename__ = "platform_incidents"
+    __table_args__ = (
+        Index("ix_platform_incidents_status_created", "status", "created_at"),
+        CheckConstraint(
+            "status IN ('open', 'investigating', 'resolved', 'accepted_exception')",
+            name="ck_platform_incidents_status",
+        ),
+        CheckConstraint("severity IN ('low', 'medium', 'high', 'critical')", name="ck_platform_incidents_severity"),
+    )
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    category: Mapped[str] = mapped_column(String(48))
+    severity: Mapped[str] = mapped_column(String(16), default="medium")
+    title: Mapped[str] = mapped_column(String(180))
+    description: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="open")
+    assigned_to: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    resolution_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )

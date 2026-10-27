@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from uuid import UUID
 
@@ -278,12 +278,20 @@ class TradeCreate(BaseModel):
     symbol: str = Field(min_length=1, max_length=32)
     direction: PlanDirection
     strategy: str = Field(default="Uncategorized", min_length=1, max_length=120)
+    setup: str | None = Field(default=None, min_length=1, max_length=120)
     outcome: TradeOutcomeValue = TradeOutcomeValue.OPEN
     pnl: float | None = None
     r_multiple: float | None = None
     entry_price: float | None = Field(default=None, gt=0)
     exit_price: float | None = Field(default=None, gt=0)
     size: float | None = Field(default=None, gt=0)
+    stop_loss: float | None = Field(default=None, gt=0)
+    take_profit: float | None = Field(default=None, gt=0)
+    mae_r: float | None = Field(default=None, ge=0)
+    mfe_r: float | None = Field(default=None, ge=0)
+    emotional_state: str | None = Field(default=None, min_length=1, max_length=64)
+    confluences: list[str] = Field(default_factory=list, max_length=30)
+    rule_breaks: list[str] = Field(default_factory=list, max_length=30)
     notes: str | None = Field(default=None, max_length=10000)
     opened_at: datetime
     closed_at: datetime | None = None
@@ -296,6 +304,34 @@ class TradeCreate(BaseModel):
         if not value:
             raise ValueError("Symbol cannot be blank")
         return value
+
+    @field_validator("emotional_state")
+    @classmethod
+    def normalize_emotional_state(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Emotional state cannot be blank")
+        return value
+
+    @field_validator("setup")
+    @classmethod
+    def normalize_setup(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Setup cannot be blank")
+        return value
+
+    @field_validator("confluences", "rule_breaks")
+    @classmethod
+    def normalize_trade_labels(cls, values: list[str]) -> list[str]:
+        normalized = list(dict.fromkeys(value.strip() for value in values))
+        if any(not value or len(value) > 64 for value in normalized):
+            raise ValueError("Labels must contain 1 to 64 characters")
+        return normalized
 
     @model_validator(mode="after")
     def validate_trade_lifecycle(self) -> "TradeCreate":
@@ -321,6 +357,7 @@ class TradeCreate(BaseModel):
 
 class TradeUpdate(BaseModel):
     strategy: str | None = Field(default=None, min_length=1, max_length=120)
+    setup: str | None = Field(default=None, min_length=1, max_length=120)
     notes: str | None = Field(default=None, max_length=10000)
     tags: list[str] | None = Field(default=None, max_length=30)
     outcome: TradeOutcomeValue | None = None
@@ -329,7 +366,44 @@ class TradeUpdate(BaseModel):
     entry_price: float | None = Field(default=None, gt=0)
     exit_price: float | None = Field(default=None, gt=0)
     size: float | None = Field(default=None, gt=0)
+    stop_loss: float | None = Field(default=None, gt=0)
+    take_profit: float | None = Field(default=None, gt=0)
+    mae_r: float | None = Field(default=None, ge=0)
+    mfe_r: float | None = Field(default=None, ge=0)
+    emotional_state: str | None = Field(default=None, min_length=1, max_length=64)
+    confluences: list[str] | None = Field(default=None, max_length=30)
+    rule_breaks: list[str] | None = Field(default=None, max_length=30)
     closed_at: datetime | None = None
+
+    @field_validator("emotional_state")
+    @classmethod
+    def normalize_emotional_state(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Emotional state cannot be blank")
+        return value
+
+    @field_validator("setup")
+    @classmethod
+    def normalize_setup(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Setup cannot be blank")
+        return value
+
+    @field_validator("confluences", "rule_breaks")
+    @classmethod
+    def normalize_trade_labels(cls, values: list[str] | None) -> list[str] | None:
+        if values is None:
+            return None
+        normalized = list(dict.fromkeys(value.strip() for value in values))
+        if any(not value or len(value) > 64 for value in normalized):
+            raise ValueError("Labels must contain 1 to 64 characters")
+        return normalized
 
     @field_validator("closed_at")
     @classmethod
@@ -348,6 +422,7 @@ class TradeRead(BaseModel):
     symbol: str
     direction: PlanDirection
     strategy: str
+    setup: str | None = None
     outcome: TradeOutcomeValue
     pnl: float | None
     r_multiple: float | None
@@ -356,6 +431,11 @@ class TradeRead(BaseModel):
     size: float | None
     stop_loss: float | None = None
     take_profit: float | None = None
+    mae_r: float | None = None
+    mfe_r: float | None = None
+    emotional_state: str | None = None
+    confluences: list[str] = Field(default_factory=list)
+    rule_breaks: list[str] = Field(default_factory=list)
     floating_pnl: float | None = None
     gross_pnl: float | None = None
     commission: float | None = None
@@ -423,6 +503,52 @@ class RiskProfileRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PerformanceRoadmapProgressUpdate(BaseModel):
+    progress_status: str = Field(pattern="^(pending|in_progress|completed|adjusted)$")
+    progress_notes: str | None = Field(default=None, max_length=5000)
+
+
+GOAL_METRICS = (
+    "expectancy_r|win_rate_pct|profit_factor|max_drawdown_r|average_loss_r|rule_break_rate_pct"
+)
+
+
+class DevelopmentGoalCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=160)
+    metric: str = Field(pattern=f"^({GOAL_METRICS})$")
+    direction: str = Field(pattern="^(increase|decrease)$")
+    target_value: float
+    due_date: date | None = None
+    notes: str | None = Field(default=None, max_length=5000)
+
+
+class DevelopmentGoalUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    target_value: float | None = None
+    due_date: date | None = None
+    status: str | None = Field(default=None, pattern="^(active|achieved|paused|dropped)$")
+    notes: str | None = Field(default=None, max_length=5000)
+
+
+class DevelopmentExperimentCreate(BaseModel):
+    goal_id: UUID | None = None
+    title: str = Field(min_length=1, max_length=160)
+    hypothesis: str = Field(min_length=1, max_length=5000)
+    rule: str = Field(min_length=1, max_length=5000)
+    start_date: date
+    end_date: date | None = None
+    min_trades: int = Field(default=20, ge=1, le=1000)
+
+
+class DevelopmentExperimentUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    hypothesis: str | None = Field(default=None, min_length=1, max_length=5000)
+    rule: str | None = Field(default=None, min_length=1, max_length=5000)
+    end_date: date | None = None
+    status: str | None = Field(default=None, pattern="^(planned|running|concluded|abandoned)$")
+    conclusion: str | None = Field(default=None, max_length=5000)
 
 
 class TradingViewWebhook(BaseModel):
