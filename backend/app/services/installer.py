@@ -17,6 +17,10 @@ if [ ! -d "$DATA" ] || [ ! -x "$WINE" ]; then
   echo "MetaTrader 5 was not found. Install it from the MetaQuotes site, open it once, log in, then run this file again."
   read -n 1 -s -r -p "Press any key to close"; exit 1
 fi
+if ! curl --connect-timeout 5 -fsS "$BASE/readyz" >/dev/null; then
+  echo "TradeIQ API is not reachable at $BASE. If MT5 is on another computer or VM, localhost points to that machine. Set PUBLIC_API_URL to an address reachable from MT5 and run setup again."
+  read -n 1 -s -r -p "Press any key to close"; exit 1
+fi
 command -v python3 >/dev/null || { echo "python3 is required (run: xcode-select --install)"; exit 1; }
 echo "1/5 Closing MetaTrader 5..."
 osascript -e 'quit app "MetaTrader 5"' >/dev/null 2>&1 || true
@@ -55,7 +59,7 @@ launchctl unload "$PLIST" >/dev/null 2>&1 || true
 launchctl load "$PLIST"
 echo "5/5 Reopening MetaTrader 5 with TradeIQ attached (it will now reattach by itself every time)..."
 nohup "$WINE" terminal64.exe /config:"C:\\Program Files\\MetaTrader 5\\config\\tradeiq_start.ini" >/dev/null 2>&1 &
-echo "Done. Return to TradeIQ - your account will show as connected in about a minute."
+echo "Done. Return to TradeIQ - connection status should update within seconds; history continues importing in the background."
 sleep 3
 """
 
@@ -67,6 +71,8 @@ exit /b
 $ErrorActionPreference = 'Stop'
 $Url = '__URL__'; $Base = '__BASE__'
 Write-Host 'TradeIQ setup for __NAME__'
+try { Invoke-WebRequest "$Base/readyz" -TimeoutSec 5 -UseBasicParsing | Out-Null }
+catch { Write-Host "TradeIQ API is not reachable at $Base. If MT5 is on another computer or VM, localhost points to that machine. Set PUBLIC_API_URL to an address reachable from MT5 and run setup again."; exit 1 }
 $origin = Get-ChildItem "$env:APPDATA\MetaQuotes\Terminal\*\origin.txt" -ErrorAction SilentlyContinue | Where-Object {
   $p = (Get-Content $_.FullName -Raw).Trim([char]0xFEFF).Trim(); Test-Path (Join-Path $p 'terminal64.exe') } | Select-Object -First 1
 if (-not $origin) { Write-Host 'MetaTrader 5 was not found. Install it, open it once and log in, then run this file again.'; exit 1 }
@@ -103,13 +109,16 @@ Write-Host '4/5 Starting the background sync service...'
 $dir = "$env:USERPROFILE\.tradeiq"; New-Item -ItemType Directory -Force $dir | Out-Null
 $bridge = @'
 param($Folder, $Url)
+$Log = Join-Path $env:USERPROFILE '.tradeiq\bridge.log'
 while ($true) {
   foreach ($f in Get-ChildItem -LiteralPath $Folder -Filter 'tradeiq_out_*.json' | Sort-Object Name) {
     try {
       Invoke-WebRequest -Uri $Url -Method Post -ContentType 'application/json' -Body ([IO.File]::ReadAllBytes($f.FullName)) -UseBasicParsing | Out-Null
+      Add-Content -LiteralPath $Log -Value "$(Get-Date -Format o) delivered $($f.Name)"
       Remove-Item -LiteralPath $f.FullName
     } catch {
       $code = 0; if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+      Add-Content -LiteralPath $Log -Value "$(Get-Date -Format o) failed $($f.Name) HTTP=$code error_type=$($_.Exception.GetType().Name)"
       if ($code -ge 400 -and $code -lt 500) { Remove-Item -LiteralPath $f.FullName } else { break }
     }
   }
@@ -124,7 +133,7 @@ Register-ScheduledTask -TaskName 'TradeIQ Bridge' -Action (New-ScheduledTaskActi
 Start-ScheduledTask -TaskName 'TradeIQ Bridge'
 Write-Host '5/5 Reopening MetaTrader 5 with TradeIQ attached (it will now reattach by itself every time)...'
 Start-Process "$Install\terminal64.exe" "/config:`"$Data\config\tradeiq_start.ini`""
-Write-Host 'Done. Return to TradeIQ - your account will show as connected in about a minute.'
+Write-Host 'Done. Return to TradeIQ - connection status should update within seconds; history continues importing in the background.'
 """
 
 

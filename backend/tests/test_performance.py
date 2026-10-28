@@ -208,8 +208,8 @@ def test_roadmap_snapshot_persists_and_progress_is_user_scoped(client):
 def test_report_compares_with_prior_period_and_is_user_scoped(client):
     register(client)
     base = datetime(2026, 2, 10, tzinfo=UTC)
-    add_trade(client, opened_at=base, closed_at=base + timedelta(minutes=5),
-              outcome="win", pnl=100, r_multiple=1)
+    current_trade = add_trade(client, opened_at=base, closed_at=base + timedelta(minutes=5),
+                              outcome="win", pnl=100, r_multiple=1)
     earlier = base - timedelta(days=5)
     add_trade(client, opened_at=earlier, closed_at=earlier + timedelta(minutes=5),
               outcome="loss", pnl=-50, r_multiple=-1)
@@ -222,6 +222,22 @@ def test_report_compares_with_prior_period_and_is_user_scoped(client):
     assert body["current"]["trade_count"] == 1
     assert body["previous"]["trade_count"] == 1
     assert body["scope"]["previous_period"]["start_date"] == "2026-02-01"
+    assert body["identity"]["dominant_strategy"] == {
+        "name": "London breakout",
+        "trade_count": 1,
+        "share_pct": 100,
+    }
+    assert body["identity"]["strongest_observed_strategy"] is None
+    assert body["strategies"][0]["evidence"] == [
+        {
+            "trade_id": current_trade["id"],
+            "symbol": "EURUSD",
+            "setup": "Opening range",
+            "source": "user",
+            "outcome": "win",
+            "closed_at": current_trade["closed_at"],
+        }
+    ]
     expectancy = next(c for c in body["comparison"] if c["metric"] == "expectancy_r")
     assert expectancy["change"] == 2
     bad = client.get(

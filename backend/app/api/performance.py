@@ -308,7 +308,62 @@ def _strategy_groups(trades: list[Trade], currencies: dict[str, str]) -> list[di
     for trade in trades:
         key = trade.strategy.strip() if trade.strategy and trade.strategy.strip() else "Unspecified"
         grouped.setdefault(key, []).append(trade)
-    return cohort_metrics(grouped, currencies)
+    results = []
+    for row in cohort_metrics(grouped, currencies):
+        group_trades = grouped[row["key"]]
+        results.append(
+            {
+                **row,
+                "evidence": [
+                    {
+                        "trade_id": str(trade.id),
+                        "symbol": trade.symbol,
+                        "setup": trade.setup,
+                        "source": trade.source,
+                        "outcome": trade.outcome,
+                        "closed_at": trade.closed_at,
+                    }
+                    for trade in group_trades
+                ],
+            }
+        )
+    return results
+
+
+def _observed_identity(
+    strategies: list[dict[str, Any]], trade_count: int
+) -> dict[str, Any]:
+    dominant = max(strategies, key=lambda row: row["trade_count"], default=None)
+    reliable = [
+        row
+        for row in strategies
+        if row["r_sample_count"] >= 30 and row["expectancy_r"] is not None
+    ]
+    strongest = max(reliable, key=lambda row: row["expectancy_r"], default=None)
+    return {
+        "dominant_strategy": (
+            {
+                "name": dominant["key"],
+                "trade_count": dominant["trade_count"],
+                "share_pct": dominant["trade_count"] / trade_count * 100,
+            }
+            if dominant and trade_count
+            else None
+        ),
+        "strongest_observed_strategy": (
+            {
+                "name": strongest["key"],
+                "expectancy_r": strongest["expectancy_r"],
+                "r_sample_count": strongest["r_sample_count"],
+            }
+            if strongest
+            else None
+        ),
+        "interpretation": (
+            "Identity reflects recorded activity, not a fixed trader profile. "
+            "Performance rankings require at least 30 recorded R-multiples and remain descriptive."
+        ),
+    }
 
 
 @router.get("/report")
@@ -334,6 +389,7 @@ def performance_report(
     )
     current_metrics = metrics_for(trades, currencies)
     prior_metrics = metrics_for(prior, prior_currencies)
+    strategy_groups = _strategy_groups(trades, currencies)
     comparison = []
     for field in REPORT_FIELDS:
         now, before = current_metrics.get(field), prior_metrics.get(field)
@@ -359,7 +415,8 @@ def performance_report(
         "current": current_metrics,
         "previous": prior_metrics,
         "comparison": comparison,
-        "strategies": _strategy_groups(trades, currencies),
+        "identity": _observed_identity(strategy_groups, len(trades)),
+        "strategies": strategy_groups,
         "limitations": [
             "Descriptive statistics from this user's closed trades only; not financial advice.",
             "Changes between periods can reflect small samples rather than real improvement.",

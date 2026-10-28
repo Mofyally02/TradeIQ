@@ -86,12 +86,32 @@ def _merge(stored: dict[str, Any] | None, data: dict[str, Any]) -> dict[str, Any
     return merged
 
 
+def _safe_diagnostics(data: dict[str, Any], login: str) -> dict[str, object] | None:
+    raw = data.get("diagnostics")
+    if not isinstance(raw, dict):
+        return None
+    error_code = raw.get("last_error_code")
+    http_status = raw.get("http_status")
+    return {
+        "ea_version": str(raw.get("ea_version") or "")[:24],
+        "terminal_id": str(raw.get("terminal_id") or "")[:64],
+        "login": login[:64],
+        "last_error_code": error_code if isinstance(error_code, int) and not isinstance(error_code, bool) else None,
+        "http_status": http_status if isinstance(http_status, int) and not isinstance(http_status, bool) else None,
+        "last_result": str(raw.get("last_result") or "")[:240],
+        "received_at": datetime.now(UTC).isoformat(),
+    }
+
+
 def handle_push(db: Session, connector: DeviceConnector, data: dict[str, Any]) -> dict[str, Any]:
     login = str(data.get("account") or "").strip()
     if not login:
         raise ValueError("Missing account login")
     user_id = str(connector.user_id)
     connector.last_seen_at = datetime.now(UTC)
+    diagnostics = _safe_diagnostics(data, login)
+    if diagnostics is not None:
+        connector.last_diagnostics = diagnostics
     account = _find_account(db, user_id, login)
     connection = db.get(AccountConnection, str(account.id)) if account else None
     if account and connection and connection.connector_type == "ea" and connection.status in LIVE_STATES:

@@ -8,6 +8,7 @@ import type { LucideIcon } from "lucide-react";
 import { ApiError, apiRequest, getApiBaseUrl } from "./api";
 import { AccountSwitcher, DetectedAccountsBanner, useDetectedAccounts } from "./multi-account";
 import { EaSetupWizard } from "./ea-wizard";
+import { ConnectionVerifier } from "./connection-verifier";
 import { EditAccountModal } from "./edit-account-modal";
 import { PnlCalendar } from "./components/pnl-calendar";
 import { ReportsPage, AnalyticsWorkspace, DevelopmentRoadmap, RiskIntelligence, StrategyLab, AskAgentPanel, EdgeSnapshot, RoadmapWidget, fmtR, profitFactorTone, usePerformanceData } from "./components/performance-workspace";
@@ -175,6 +176,7 @@ const navigation: { id: ViewId; label: string; icon: string }[] = [
 ];
 
 const STORAGE_KEY = "tradeiq.journal.v1";
+const ACTIVE_VIEW_KEY = "tradeiq.activeView";
 
 type SavedWorkspace = {
   version: 1;
@@ -982,7 +984,7 @@ function isWorkspace(value: unknown): value is SavedWorkspace {
   return validTrades && validReviews && validAccounts;
 }
 
-function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, accounts, viewIds, onToggleView, onClearView, onTimezoneChange, onQuickCapture, onNavigate, onReviewStart, onRecordFill, onManageTrade, onDiscardPlan, onOpenAccountSetup, onConnectAccount, onRevokeAccount, onDeleteAccount, onEditAccount, onExport, onImportCsv, onBulkStrategy }: { view: ViewId; trades: Trade[]; reviews: TradeReview[]; reviewedIds: string[]; timezone: string; dateRange: DashboardDateRange; accounts: AccountSetup[]; viewIds: string[]; onToggleView: (id: string) => void; onClearView: () => void; onTimezoneChange: (timezone: string) => void; onQuickCapture: () => void; onNavigate: (view: ViewId) => void; onReviewStart: (trade: Trade) => void; onRecordFill: (trade: Trade) => void; onManageTrade: (trade: Trade) => void; onDiscardPlan: (tradeId: string) => void; onOpenAccountSetup: () => void; onConnectAccount: (account: AccountSetup) => void; onSyncAccount: (account: AccountSetup) => void; onRevokeAccount: (account: AccountSetup) => void; onDeleteAccount: (account: AccountSetup) => void; onEditAccount: (account: AccountSetup) => void; onRefreshAccount: (account: AccountSetup) => void; onExport: (trades: Trade[]) => void; onImportCsv: (file: File) => void; onBulkStrategy: (ids: string[], strategy: string) => Promise<void> }) {
+function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, accounts, viewIds, onToggleView, onClearView, onTimezoneChange, onQuickCapture, onNavigate, onReviewStart, onReportEvidenceOpen, onRecordFill, onManageTrade, onDiscardPlan, onOpenAccountSetup, onConnectAccount, onRevokeAccount, onDeleteAccount, onEditAccount, onExport, onImportCsv, onBulkStrategy }: { view: ViewId; trades: Trade[]; reviews: TradeReview[]; reviewedIds: string[]; timezone: string; dateRange: DashboardDateRange; accounts: AccountSetup[]; viewIds: string[]; onToggleView: (id: string) => void; onClearView: () => void; onTimezoneChange: (timezone: string) => void; onQuickCapture: () => void; onNavigate: (view: ViewId) => void; onReviewStart: (trade: Trade) => void; onReportEvidenceOpen: (tradeId: string) => void; onRecordFill: (trade: Trade) => void; onManageTrade: (trade: Trade) => void; onDiscardPlan: (tradeId: string) => void; onOpenAccountSetup: () => void; onConnectAccount: (account: AccountSetup) => void; onSyncAccount: (account: AccountSetup) => void; onRevokeAccount: (account: AccountSetup) => void; onDeleteAccount: (account: AccountSetup) => void; onEditAccount: (account: AccountSetup) => void; onRefreshAccount: (account: AccountSetup) => void; onExport: (trades: Trade[]) => void; onImportCsv: (file: File) => void; onBulkStrategy: (ids: string[], strategy: string) => Promise<void> }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkStrategy, setBulkStrategy] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -1032,7 +1034,7 @@ function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, 
     return <ScopedLab view={view} accountId={viewIds.length === 1 ? viewIds[0] : null} dateRange={dateRange} timezone={timezone} rValues={ordered} />;
   }
   if (view === "execution") return <ExecutionLab trades={trades.filter((trade) => matchesDateRange(trade.date, dateRange))} />;
-  if (view === "reports") return <ReportsPage accountId={viewIds.length === 1 ? viewIds[0] : null} timezone={timezone} />;
+  if (view === "reports") return <ReportsPage accountId={viewIds.length === 1 ? viewIds[0] : null} timezone={timezone} onOpenTrade={onReportEvidenceOpen} />;
   if (view === "intelligence") {
     const closedR = trades.filter((trade) => matchesDateRange(trade.date, dateRange)).flatMap((trade) => trade.rMultiple === null ? [] : [trade.rMultiple]);
     return <IntelligencePage accountId={viewIds.length === 1 ? viewIds[0] : null} dateRange={dateRange} timezone={timezone} rValues={closedR} />;
@@ -1534,6 +1536,7 @@ function OneTimeSecretDialog({
 
 export default function Home() {
   const [view, setView] = useState<ViewId>("overview");
+  const [viewRestored, setViewRestored] = useState(false);
   const [apiUser, setApiUser] = useState<ApiUser | null>(null);
   const [apiStatus, setApiStatus] = useState<"checking" | "signed-out" | "loading" | "ready" | "error">("checking");
   const [apiError, setApiError] = useState("");
@@ -1551,6 +1554,7 @@ export default function Home() {
   const [deletingAccount, setDeletingAccount] = useState<AccountSetup | null>(null);
   const [editingAccount, setEditingAccount] = useState<AccountSetup | null>(null);
   const [oneTimeSecret, setOneTimeSecret] = useState<OneTimeSecret | null>(null);
+  const [verifying, setVerifying] = useState<{ id: string; name: string } | null>(null);
   const [eaWizard, setEaWizard] = useState<{ accountId?: string; accountName: string; webhookUrl: string } | null>(null);
   const [viewIds, setViewIds] = useState<string[]>([]);
   const detected = useDetectedAccounts(apiStatus === "ready");
@@ -1566,6 +1570,21 @@ export default function Home() {
   const pendingReviewCount = trades.filter((trade) =>
     (trade.outcome === "Win" || trade.outcome === "Loss" || trade.outcome === "Flat") && !reviewedIds.includes(trade.id),
   ).length;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const savedView = window.localStorage.getItem(ACTIVE_VIEW_KEY);
+      if (savedView && navigation.some((item) => item.id === savedView)) {
+        setView(savedView as ViewId);
+      }
+      setViewRestored(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (viewRestored) window.localStorage.setItem(ACTIVE_VIEW_KEY, view);
+  }, [view, viewRestored]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1643,19 +1662,50 @@ export default function Home() {
   const waitingOnBroker = accounts.some((item) =>
     (item.connectorType === "metaapi" || item.connectorType === "ea") && ["provisioning", "pending", "syncing"].includes(item.status ?? ""));
   const hasLiveAccount = accounts.some((item) => (item.connectorType === "metaapi" || item.connectorType === "ea") && ["connected", "offline"].includes(item.status ?? ""));
+  const accountIds = accounts.filter((item) => item.provider === "MT5").map((item) => item.id).join(",");
 
   useEffect(() => {
-    if (apiStatus !== "ready" || (!waitingOnBroker && !hasLiveAccount)) return;
-    const interval = window.setInterval(() => {
-      loadBackendWorkspace(scopeKey ? scopeKey.split(",") : [])
-        .then((workspace) => {
-          setAccounts(workspace.accounts);
-          setTrades(workspace.trades);
-        })
-        .catch(() => undefined);
-    }, waitingOnBroker ? 5000 : 20000);
-    return () => window.clearInterval(interval);
-  }, [apiStatus, waitingOnBroker, hasLiveAccount, scopeKey]);
+    if (apiStatus !== "ready" || !accountIds || (!waitingOnBroker && !hasLiveAccount)) return;
+    let cancelled = false;
+    let inFlight = false;
+    const refreshStatuses = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const statuses = await Promise.all(accountIds.split(",").map(async (accountId) => {
+          const [connection, positions] = await Promise.all([
+            apiRequest<{ status: string; connector_type: string; last_error: string | null; balance: number | null; equity: number | null }>(`/accounts/${accountId}/status`),
+            apiRequest<unknown[]>(`/accounts/${accountId}/positions`),
+          ]);
+          return { accountId, connection, openPositions: positions.length };
+        }));
+        if (cancelled) return;
+        const byId = new Map(statuses.map((item) => [item.accountId, item]));
+        setAccounts((current) => current.map((account) => {
+          const next = byId.get(account.id);
+          return next ? {
+            ...account,
+            connectorType: next.connection.connector_type,
+            lastError: next.connection.last_error,
+            status: next.connection.status,
+            openPositions: next.openPositions,
+            balance: next.connection.balance,
+            equity: next.connection.equity,
+          } : account;
+        }));
+      } catch {
+        // Keep the last known account status when a refresh briefly fails.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void refreshStatuses();
+    const interval = window.setInterval(refreshStatuses, waitingOnBroker ? 3000 : 20000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [apiStatus, accountIds, waitingOnBroker, hasLiveAccount]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -1892,6 +1942,17 @@ export default function Home() {
     setConnectingAccount(account);
   }
 
+  async function updateEaSetup(accountId: string, accountName: string) {
+    setActionError("");
+    try {
+      const setup = await apiRequest<{ webhook_url: string }>(`/accounts/${accountId}/ea/connect`, { method: "POST" });
+      setVerifying(null);
+      setEaWizard({ accountId, accountName, webhookUrl: setup.webhook_url });
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not refresh the EA setup.");
+    }
+  }
+
   async function connectMt5Account(
     account: AccountSetup,
     login: string,
@@ -1906,7 +1967,7 @@ export default function Home() {
       ));
       setConnectingAccount(null);
       if (ea.already_installed || !ea.webhook_url) {
-        setNotice(`Added ${account.name}. Log into it in MetaTrader 5 and TradeIQ connects it automatically.`);
+        setVerifying({ id: account.id, name: account.name });
         return;
       }
       setEaWizard({ accountId: account.id, accountName: account.name, webhookUrl: ea.webhook_url });
@@ -2028,6 +2089,33 @@ export default function Home() {
       setActionError(error instanceof Error ? error.message : "Could not save this review.");
     }
     window.setTimeout(() => setNotice(""), 5000);
+  }
+
+  async function openReportEvidence(tradeId: string) {
+    try {
+      const trade = trades.find((item) => item.id === tradeId)
+        ?? mapApiTrade(await apiRequest<ApiTrade>(`/trades/${tradeId}`));
+      let review = reviews.find((item) => item.tradeId === tradeId) ?? null;
+      if (!review) {
+        const saved = await apiRequest<ApiReview>(`/trades/${tradeId}/reviews`).catch((error: unknown) => {
+          if (error instanceof ApiError && error.status === 404) return null;
+          throw error;
+        });
+        if (saved) {
+          review = {
+            tradeId: saved.trade_id,
+            planAdherence: saved.plan_adherence,
+            learning: saved.learning,
+            nextAction: saved.next_action,
+          };
+          setReviews((current) => [...current.filter((item) => item.tradeId !== tradeId), review as TradeReview]);
+        }
+      }
+      setView("reviews");
+      setActiveReview(trade);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Could not open this report evidence.");
+    }
   }
 
   async function updateTimezone(value: string) {
@@ -2198,7 +2286,7 @@ export default function Home() {
               }).catch(() => undefined);
             }}
           />
-          <ViewContent key={view} view={view} trades={trades} reviews={reviews} reviewedIds={reviewedIds} timezone={timezone} dateRange={dateRange} accounts={accounts} viewIds={scopeIds} onToggleView={toggleView} onClearView={() => saveView([])} onTimezoneChange={(value) => void updateTimezone(value)} onQuickCapture={() => setCaptureOpen(true)} onNavigate={setView} onReviewStart={setActiveReview} onRecordFill={setActivePlan} onManageTrade={setActivePlan} onDiscardPlan={discardPlan} onOpenAccountSetup={() => setAccountSetupOpen(true)} onConnectAccount={connectAccount} onSyncAccount={syncAccount} onRevokeAccount={revokeAccount} onDeleteAccount={setDeletingAccount} onEditAccount={setEditingAccount} onRefreshAccount={refreshAccount} onExport={exportVisibleTrades} onImportCsv={(file) => void importCsvFile(file)} onBulkStrategy={bulkStrategy} />
+          <ViewContent key={view} view={view} trades={trades} reviews={reviews} reviewedIds={reviewedIds} timezone={timezone} dateRange={dateRange} accounts={accounts} viewIds={scopeIds} onToggleView={toggleView} onClearView={() => saveView([])} onTimezoneChange={(value) => void updateTimezone(value)} onQuickCapture={() => setCaptureOpen(true)} onNavigate={setView} onReviewStart={setActiveReview} onReportEvidenceOpen={(tradeId) => void openReportEvidence(tradeId)} onRecordFill={setActivePlan} onManageTrade={setActivePlan} onDiscardPlan={discardPlan} onOpenAccountSetup={() => setAccountSetupOpen(true)} onConnectAccount={connectAccount} onSyncAccount={syncAccount} onRevokeAccount={revokeAccount} onDeleteAccount={setDeletingAccount} onEditAccount={setEditingAccount} onRefreshAccount={refreshAccount} onExport={exportVisibleTrades} onImportCsv={(file) => void importCsvFile(file)} onBulkStrategy={bulkStrategy} />
         </div>
       </main>
       {captureOpen && <QuickCaptureModal onClose={() => setCaptureOpen(false)} onSave={savePlan} />}
@@ -2208,7 +2296,20 @@ export default function Home() {
       {editingAccount && <EditAccountModal account={editingAccount} onClose={() => setEditingAccount(null)} onSave={renameAccount} />}
       {deletingAccount && <DeleteAccountModal account={deletingAccount} onClose={() => setDeletingAccount(null)} onConfirm={deleteAccount} />}
       {connectingAccount && <MT5ConnectModal method={mt5Method} account={connectingAccount} onClose={() => setConnectingAccount(null)} onConnect={connectMt5Account} />}
-      {eaWizard && <EaSetupWizard {...eaWizard} onClose={() => setEaWizard(null)} />}
+      {verifying && (
+        <ConnectionVerifier
+          accountId={verifying.id}
+          accountName={verifying.name}
+          onRepair={() => void updateEaSetup(verifying.id, verifying.name)}
+          onConnected={() => { const a = accounts.find((x) => x.id === verifying.id); if (a) void refreshAccount(a); }}
+          onClose={() => setVerifying(null)}
+        />
+      )}
+      {eaWizard && <EaSetupWizard {...eaWizard} onClose={() => setEaWizard(null)} onFinish={() => {
+        const setup = eaWizard;
+        setEaWizard(null);
+        if (setup.accountId) setVerifying({ id: setup.accountId, name: setup.accountName });
+      }} />}
       {oneTimeSecret && <OneTimeSecretDialog secret={oneTimeSecret} onClose={() => setOneTimeSecret(null)} />}
     </div>
   );

@@ -15,11 +15,13 @@ export function EaSetupWizard({
   accountName,
   webhookUrl,
   onClose,
+  onFinish,
 }: {
   accountId?: string;
   accountName: string;
   webhookUrl: string;
   onClose: () => void;
+  onFinish: () => void;
 }) {
   const [os, setOs] = useState<Os>(() => detectOs());
   const [step, setStep] = useState(0);
@@ -107,7 +109,7 @@ export function EaSetupWizard({
         <div className="modal-actions">
           {step > 0 ? <button type="button" className="button button-quiet" onClick={() => setStep(step - 1)}>Back</button> : <button type="button" className="button button-quiet" onClick={onClose}>Close</button>}
           {last
-            ? <button type="button" className="button button-primary" onClick={onClose}>{live ? "Done" : "Finish later"}</button>
+            ? <button type="button" className="button button-primary" onClick={live ? onClose : onFinish}>{live ? "Done" : "Finish later"}</button>
             : <button type="button" className="button button-primary" onClick={() => setStep(step + 1)}>Next</button>}
         </div>
       </section>

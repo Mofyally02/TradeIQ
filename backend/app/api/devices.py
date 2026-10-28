@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -12,6 +13,7 @@ from app.services import device, installer
 from app.services.mt5_method import effective_method
 
 MAX_BODY_BYTES = 2_000_000
+logger = logging.getLogger("tradeiq.devices")
 
 public_router = APIRouter(prefix="/mt5/device", tags=["MT5 device connector"])
 router = APIRouter(prefix="/devices", tags=["MT5 device connector"])
@@ -20,9 +22,15 @@ router = APIRouter(prefix="/devices", tags=["MT5 device connector"])
 @public_router.post("/{user_id}/{secret}")
 async def receive_device_push(user_id: UUID, secret: str, request: Request, db: Database) -> dict[str, Any]:
     """Public webhook called by the TradeIQ EA on any of the user's terminals."""
-    connector = device.authenticate(db, str(user_id), secret)
+    source_ip = request.client.host if request.client else "unknown"
+    try:
+        connector = device.authenticate(db, str(user_id), secret)
+    except HTTPException:
+        logger.warning("Rejected MT5 device push user_id=%s source_ip=%s reason=invalid_token", user_id, source_ip)
+        raise
     body = await request.body()
     if len(body) > MAX_BODY_BYTES:
+        logger.warning("Rejected MT5 device push user_id=%s source_ip=%s reason=payload_too_large", user_id, source_ip)
         raise HTTPException(status_code=413, detail="Payload too large")
     try:
         data = await request.json()
@@ -31,9 +39,11 @@ async def receive_device_push(user_id: UUID, secret: str, request: Request, db: 
         result = device.handle_push(db, connector, data)
     except PermissionError as error:
         db.rollback()
+        logger.warning("Rejected MT5 device push user_id=%s source_ip=%s reason=account_mismatch", user_id, source_ip)
         raise HTTPException(status_code=409, detail=str(error)) from error
     except (ValueError, KeyError, TypeError) as error:
         db.rollback()
+        logger.warning("Rejected MT5 device push user_id=%s source_ip=%s reason=invalid_payload error_type=%s", user_id, source_ip, type(error).__name__)
         raise HTTPException(status_code=422, detail=f"Invalid payload: {error}") from error
     return {"status": "ok", **result}
 

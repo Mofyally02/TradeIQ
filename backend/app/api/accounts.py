@@ -33,6 +33,7 @@ from app.services.metaapi import (
     schedule_provision,
     schedule_sync,
 )
+from app.services import connection_verifier
 from app.services import device as device_service
 from app.services import ea as ea_service
 from app.services.credentials import encrypt_secret
@@ -273,6 +274,18 @@ def connect_ea_account(account_id: UUID, current_user: CurrentUser, db: Database
         "webhook_url": url,
         "installers": {os_name: f"{url}/installer/{os_name}" for os_name in ("mac", "windows")},
     }
+
+
+@router.post("/{account_id}/ea/verify")
+def verify_ea_connection(account_id: UUID, current_user: CurrentUser, db: Database) -> dict[str, object]:
+    """Connection check run after the user clicks Connect; links a detected login when it can."""
+    account = get_owned_account(db, current_user.id, account_id)
+    try:
+        return connection_verifier.verify(db, current_user, account)
+    except Exception:
+        db.rollback()
+        logger.exception("Connection verification failed for account %s", account.id)
+        raise HTTPException(status_code=500, detail="Could not verify the connection. Please try again.") from None
 
 
 @router.patch("/{account_id}", response_model=AccountRead)

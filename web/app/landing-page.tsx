@@ -68,6 +68,13 @@ const features = [
 const resources = [
   {
     icon: "spark",
+    title: "EDGE Trader DNA",
+    description: "See your most-used strategies, compare observed performance when samples support it, and trace findings back to the trades behind them.",
+    link: "#features",
+    label: "Explore Version 3",
+  },
+  {
+    icon: "spark",
     title: "Getting started",
     description: "Set up your workspace and capture your first trade plan.",
     link: "#about",
@@ -273,15 +280,16 @@ export function LandingPage({
         </div>
         <div className="feature-spotlight">
           <div className="spotlight-copy">
-            <span className="landing-kicker">FROM INTENT TO INSIGHT</span>
-            <h3>One master journal.<br /><span>One step forward.</span></h3>
-            <p>Give each trade its full story—from the plan you made before entry to the lesson you take into your next session.</p>
-            <button className="landing-text-link" onClick={() => openAuth("register")}>Create your account <Mark name="arrow" /></button>
+            <span className="landing-kicker">VERSION 3 · EDGE TRADER DNA</span>
+            <h3>Your trading identity.<br /><span>Backed by evidence.</span></h3>
+            <p>Connect documented plans, journal reviews, and closed-trade results. Explore supported patterns, open the source trades, and turn a finding into a measurable development goal.</p>
+            <button className="landing-text-link" onClick={() => openAuth("register")}>Build your journal history <Mark name="arrow" /></button>
           </div>
           <div className="spotlight-flow">
-            <div><span>01</span><b>Plan</b><small>Define the setup</small><i /></div>
-            <div><span>02</span><b>Record</b><small>Capture the trade</small><i /></div>
-            <div><span>03</span><b>Review</b><small>Find the lesson</small><i /></div>
+            <div><span>01</span><b>Analyze</b><small>Calculate verified metrics</small><i /></div>
+            <div><span>02</span><b>Identify</b><small>Inspect evidence-linked patterns</small><i /></div>
+            <div><span>03</span><b>Set a goal</b><small>Choose a measurable focus</small><i /></div>
+            <div><span>04</span><b>Measure</b><small>Review eligible trades over time</small><i /></div>
           </div>
         </div>
       </section>
@@ -310,11 +318,11 @@ export function LandingPage({
           <span className="landing-kicker">WHY TRADEIQ</span>
           <h2>Better trading starts with <span>better questions.</span></h2>
           <p>Performance is more than a winning streak. TradeIQ gives you a thoughtful place to record your decisions, revisit your plan, and understand the habits behind your results.</p>
-          <p>Version 2 adds Edge Intelligence on top of the journal: the same private workspace now shows where your edge is and where it leaks.</p>
-          <p>It is designed to keep your trading story in one private workspace—clear enough to review, structured enough to learn from.</p>
+          <p>Version 3 adds EDGE Trader DNA to that foundation. It connects your recorded strategy, execution, and review history to evidence-linked observations and development goals.</p>
+          <p>Metrics stay deterministic, small samples stay provisional, and every insight remains an observation about your records—not a promise or trading signal.</p>
           <div className="about-values">
             <div><Mark name="lock" /><span><b>Your data stays yours</b><small>Private workspace, secured account.</small></span></div>
-            <div><Mark name="chart" /><span><b>Process over noise</b><small>See the context behind each outcome.</small></span></div>
+            <div><Mark name="chart" /><span><b>Evidence before interpretation</b><small>Trace report findings back to source trades.</small></span></div>
           </div>
         </div>
       </section>
@@ -338,6 +346,7 @@ export function LandingPage({
           <div className="faq-list">
             <details><summary>What happens when I sign in?<span>+</span></summary><p>Your credentials are checked by the TradeIQ API. Once your session is confirmed, your private journal workspace opens.</p></details>
             <details><summary>What is Edge Intelligence?<span>+</span></summary><p>A per-user analytics layer that turns your closed trades, tags and reviews into expectancy, strategy ranking, behavior patterns and a roadmap. It uses only your data and does not give trading signals.</p></details>
+            <details><summary>What is EDGE Trader DNA?<span>+</span></summary><p>A Version 3 report that summarizes your recorded trading identity, compares strategy performance when the data supports it, links findings to source trades, and helps you choose measurable development goals. Small samples are not treated as proof of a lasting edge.</p></details>
             <details><summary>Why do some metrics show a dash?<span>+</span></summary><p>Metrics need recorded R-multiples. Nothing is estimated, and profit factor is hidden when accounts mix currencies.</p></details>
             <details><summary>Do I need to connect a broker?<span>+</span></summary><p>No. You can start with a manual journal. Account connections and integrations are optional and depend on your setup.</p></details>
             <details><summary>Is TradeIQ a trading or investment service?<span>+</span></summary><p>No. TradeIQ is a journaling and decision-review workspace, not financial advice or a broker.</p></details>

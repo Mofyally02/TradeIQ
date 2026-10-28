@@ -1,4 +1,5 @@
 import time
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -41,7 +42,7 @@ def test_admin_switch_enables_ea_flow(client, test_engine):
     connect = client.post(f"/api/v1/accounts/{account_id}/ea/connect")
     assert connect.status_code == 201
     url = connect.json()["webhook_url"]
-    path = url.split("localhost:8000", 1)[1]
+    path = urlsplit(url).path
     now = int(time.time())
     push = {
         "account": 123456,
@@ -67,9 +68,19 @@ def test_admin_switch_enables_ea_flow(client, test_engine):
     assert status["status"] == "connected"
     assert status["balance"] == 1000 and status["equity"] == 1010
     for os_name, marker in (("mac", "#!/bin/bash"), ("windows", "#PSBEGIN#")):
-        script = client.get(connect.json()["installers"][os_name].split("localhost:8000", 1)[1])
+        script = client.get(urlsplit(connect.json()["installers"][os_name]).path)
         assert script.status_code == 200 and marker in script.text and url in script.text
-    assert "TradeIQ" in client.get(path + "/ea.mq5").text
+        assert "/readyz" in script.text
+        assert script.text.index("/readyz") < script.text.index("Closing MetaTrader 5")
+        if os_name == "windows":
+            assert "bridge.log" in script.text and "HTTP=$code" in script.text
+    ea_source = client.get(path + "/ea.mq5").text
+    assert "TradeIQ" in ea_source
+    assert '#property version   "1.12"' in ea_source
+    assert "DiagnosticsJson()" in ea_source
+    assert "last_error_code" in ea_source
+    assert "URL blocked" in ea_source and "Authentication rejected" in ea_source
+    assert ea_source.index("PushState(false);") < ea_source.index("PushHistory();")
     assert client.get(path[:-4] + "xxxx/installer/mac").status_code == 403
     assert client.patch(f"/api/v1/accounts/{account_id}", json={"name": "Renamed"}).json()["name"] == "Renamed"
     positions = client.get(f"/api/v1/accounts/{account_id}/positions").json()
@@ -201,19 +212,23 @@ def test_admin_roles_and_suspension_are_enforced(client, test_engine):
     ]
 
 
-def test_device_detects_and_claims_multiple_accounts(client, test_engine):
+def test_device_detects_and_claims_multiple_accounts(client, test_engine, caplog):
     register(client, "multi@example.com")
     promote(test_engine, "multi@example.com")
     enroll_admin_mfa(client)
     client.put("/api/v1/admin/settings", json={"method": "ea"})
     connector = client.post("/api/v1/devices/connector").json()
-    path = connector["webhook_url"].split("localhost:8000", 1)[1]
+    path = urlsplit(connector["webhook_url"]).path
     now = int(time.time())
 
     def push(login, balance, deals=()):
         return client.post(path, json={
             "account": login, "server": "Demo-1", "name": f"Acc {login}", "currency": "USD",
             "balance": balance, "equity": balance, "server_offset": 0,
+            "diagnostics": {
+                "ea_version": "1.12", "terminal_id": "terminal-a", "login": login,
+                "last_error_code": 4014, "http_status": -1, "last_result": "URL blocked",
+            },
             "positions": [], "deals": list(deals),
         })
 
@@ -230,9 +245,56 @@ def test_device_detects_and_claims_multiple_accounts(client, test_engine):
     account_id = ok.json()["id"]
     status = client.get(f"/api/v1/accounts/{account_id}/status").json()
     assert status["status"] == "connected" and status["balance"] == 1000
+    verification = client.post(f"/api/v1/accounts/{account_id}/ea/verify").json()
+    assert verification["diagnostics"]["ea_version"] == "1.12"
+    assert verification["diagnostics"]["terminal_id"] == "terminal-a"
+    assert verification["diagnostics"]["category"] == "webrequest_blocked"
     assert push(111, 1100).json()["state"] == "connected"
     assert [d["login"] for d in client.get("/api/v1/devices/detected").json()] == ["222"]
     second = client.get("/api/v1/devices/detected").json()[0]
     assert client.post(f"/api/v1/devices/detected/{second['id']}/dismiss").status_code == 204
     assert client.get("/api/v1/devices/detected").json() == []
-    assert client.post(path[:-4] + "xxxx", json={"account": 1}).status_code == 403
+    rejected = client.post(path[:-4] + "xxxx", json={"account": 1})
+    assert rejected.status_code == 403
+    assert "reason=invalid_token" in caplog.text
+    assert connector["webhook_url"].split("/")[-1] not in caplog.text
+
+
+def test_connect_verification_checks_and_self_links(client, test_engine, monkeypatch):
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "public_api_url", "http://localhost:8000")
+    register(client, "verify-boss@example.com")
+    promote(test_engine, "verify-boss@example.com")
+    enroll_admin_mfa(client)
+    assert client.put("/api/v1/admin/settings", json={"method": "ea"}).status_code == 200
+    account_id = make_account(client)["id"]
+    login = client.get(f"/api/v1/accounts/{account_id}").json().get("external_account_id")
+    connect = client.post(f"/api/v1/accounts/{account_id}/ea/connect").json()
+    path = urlsplit(connect["webhook_url"]).path
+
+    first = client.post(f"/api/v1/accounts/{account_id}/ea/verify").json()
+    assert first["state"] == "waiting" and not first["connected"]
+    terminal = next(step for step in first["steps"] if step["key"] == "terminal")
+    assert terminal["status"] == "pending"
+    assert "heartbeat" in terminal["detail"]
+    assert "TradeIQ_Journal" in terminal["fix"]
+    assert "localhost" in terminal["fix"] and "different PC or VM" in terminal["fix"]
+
+    push = {"account": int(login or 123456), "balance": 500, "equity": 500, "server_offset": 0,
+            "positions": [], "deals": []}
+    assert client.post(path, json=push).status_code == 200
+    final = client.post(f"/api/v1/accounts/{account_id}/ea/verify").json()
+    assert final["connected"] is True and final["state"] == "connected"
+    assert all(step["status"] == "ok" for step in final["steps"])
+
+    other = client.post(path, json={**push, "account": 99999}).json()
+    assert other["state"] == "detected"
+    other_account = client.post("/api/v1/accounts", json={
+        "name": "Other", "external_account_id": "55555", "broker": "Demo broker",
+        "environment": "demo", "currency": "USD"}).json()["id"]
+    client.post(f"/api/v1/accounts/{other_account}/ea/connect")
+    wrong = client.post(f"/api/v1/accounts/{other_account}/ea/verify").json()
+    assert wrong["state"] == "action_required"
+    assert any(step["key"] == "login" and step["status"] == "failed" for step in wrong["steps"])
+    assert client.post(f"/api/v1/accounts/{account_id[:-1]}0/ea/verify").status_code in (404, 422)

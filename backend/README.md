@@ -208,3 +208,11 @@ The generated installers (`app/services/installer.py`, helper `ea/attach_ea.py`)
 terminal's saved chart profile and set `[Experts] Account=0`, `Profile=0` in `config/common.ini`. After setup the
 trader only opens MT5 and logs in; the EA reloads on every normal launch and keeps running when the account is
 switched, and the device connector detects each new login automatically.
+
+## Connection verification bot
+
+Clicking **Connect account** (EA method) opens a verifier that calls
+`POST /accounts/{id}/ea/verify` every ~3 s for up to 2 minutes. It checks the connector
+install, that MT5 is reporting, that the right login is signed in, and that data is
+importing. If MT5 is reporting the account's login but the link is stale, it adopts the
+pending detection automatically; otherwise each failed step returns a concrete fix.

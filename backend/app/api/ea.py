@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from app.services import ea, installer
 router = APIRouter(prefix="/mt5/ea", tags=["MT5 Expert Advisor"])
 
 MAX_BODY_BYTES = 2_000_000
+logger = logging.getLogger("tradeiq.ea")
 
 
 def _authorised(account_id: UUID, secret: str, db: Database) -> tuple[TradingAccount, AccountConnection]:
@@ -51,12 +53,15 @@ def download_installer(account_id: UUID, secret: str, os_name: str, db: Database
 @router.post("/{account_id}/{secret}")
 async def receive_ea_push(account_id: UUID, secret: str, request: Request, db: Database) -> dict[str, Any]:
     """Public webhook called by the TradeIQ Expert Advisor; authenticated by the secret in the URL."""
+    source_ip = request.client.host if request.client else "unknown"
     account = db.get(TradingAccount, str(account_id))
     connection = db.get(AccountConnection, str(account_id)) if account else None
     if account is None or connection is None or not ea.secret_matches(connection, secret):
+        logger.warning("Rejected MT5 EA push account_id=%s source_ip=%s reason=invalid_token", account_id, source_ip)
         raise HTTPException(status_code=403, detail="Invalid webhook")
     body = await request.body()
     if len(body) > MAX_BODY_BYTES:
+        logger.warning("Rejected MT5 EA push account_id=%s source_ip=%s reason=payload_too_large", account_id, source_ip)
         raise HTTPException(status_code=413, detail="Payload too large")
     try:
         data = await request.json()
@@ -65,8 +70,10 @@ async def receive_ea_push(account_id: UUID, secret: str, request: Request, db: D
         result = ea.ingest(account, connection, data, db)
     except PermissionError as error:
         db.rollback()
+        logger.warning("Rejected MT5 EA push account_id=%s source_ip=%s reason=account_mismatch", account_id, source_ip)
         raise HTTPException(status_code=409, detail=str(error)) from error
     except (ValueError, KeyError, TypeError) as error:
         db.rollback()
+        logger.warning("Rejected MT5 EA push account_id=%s source_ip=%s reason=invalid_payload error_type=%s", account_id, source_ip, type(error).__name__)
         raise HTTPException(status_code=422, detail=f"Invalid payload: {error}") from error
     return {"status": "ok", **result}

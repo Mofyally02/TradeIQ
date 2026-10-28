@@ -537,6 +537,7 @@ class DeviceConnector(Base):
     token_hash: Mapped[str] = mapped_column(String(64))
     encrypted_secret: Mapped[str | None] = mapped_column(String(512), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_diagnostics: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

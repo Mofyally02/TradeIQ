@@ -894,12 +894,26 @@ export function RiskIntelligence({ data, rValues, accountId = null }: { data: Pe
 }
 
 type ReportMetrics = Record<string, number | null | string>;
+type ReportEvidence = {
+  trade_id: string;
+  symbol: string;
+  setup: string | null;
+  source: string;
+  outcome: string;
+  closed_at: string;
+};
+type ReportStrategy = Cohort & { evidence: ReportEvidence[] };
 type Report = {
   generated_at: string;
   scope: { timezone: string; current_period: { start_date: string; end_date: string }; previous_period: { start_date: string; end_date: string } };
   comparison: Array<{ metric: string; current: number | null; previous: number | null; change: number | null }>;
   current: ReportMetrics;
-  strategies: Cohort[];
+  identity: {
+    dominant_strategy: { name: string; trade_count: number; share_pct: number } | null;
+    strongest_observed_strategy: { name: string; expectancy_r: number; r_sample_count: number } | null;
+    interpretation: string;
+  };
+  strategies: ReportStrategy[];
   limitations: string[];
 };
 
@@ -929,7 +943,7 @@ function download(name: string, type: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
-export function ReportsPage({ accountId, timezone }: { accountId: string | null; timezone: string }) {
+export function ReportsPage({ accountId, timezone, onOpenTrade }: { accountId: string | null; timezone: string; onOpenTrade: (tradeId: string) => void }) {
   const [period, setPeriod] = useState("30");
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState("");
@@ -993,6 +1007,32 @@ export function ReportsPage({ accountId, timezone }: { accountId: string | null;
         )}
       </section>
       {report && !loading && <section className="panel intelligence-workspace"><div className="subsection-heading"><div><span className="eyebrow">THIS PERIOD</span><h3>Strategies</h3></div></div><StrategyTable rows={report.strategies} /></section>}
+      {report && !loading && (
+        <>
+          <section className="panel intelligence-workspace">
+            <div className="subsection-heading"><div><span className="eyebrow">EDGE TRADER DNA</span><h3>Observed trading identity</h3></div><span className="muted-small">{String(report.current.trade_count ?? 0)} closed trades</span></div>
+            <div className="dna-summary-grid">
+              <div><span>Most recorded strategy</span><strong>{report.identity.dominant_strategy?.name ?? "Not recorded"}</strong><small>{report.identity.dominant_strategy ? `${report.identity.dominant_strategy.trade_count} trades · ${fmt(report.identity.dominant_strategy.share_pct, 0)}% of this period` : "Add strategy labels to identify your trading mix."}</small></div>
+              <div><span>Strongest observed expectancy</span><strong>{report.identity.strongest_observed_strategy?.name ?? "Building sample"}</strong><small>{report.identity.strongest_observed_strategy ? `${fmtR(report.identity.strongest_observed_strategy.expectancy_r)} · ${report.identity.strongest_observed_strategy.r_sample_count} recorded R trades` : "A setup is highlighted only after 30 recorded R trades."}</small></div>
+            </div>
+            <p className="muted-small analysis-note">{report.identity.interpretation}</p>
+          </section>
+          <section className="panel intelligence-workspace">
+            <div className="subsection-heading"><div><span className="eyebrow">REPORT EVIDENCE</span><h3>Source trades</h3></div></div>
+            {report.strategies.length ? <div className="report-evidence-groups">{report.strategies.map((strategy) => (
+              <details className="report-evidence-group" key={strategy.key}>
+                <summary><strong>{strategy.key}</strong><span>{strategy.evidence.length} trades</span></summary>
+                <ul className="report-evidence-list">{strategy.evidence.map((trade) => (
+                  <li key={trade.trade_id}>
+                    <span><strong>{trade.symbol}</strong><small>{trade.setup ?? "Setup not recorded"} · {trade.outcome} · {trade.source === "mt5" ? "MT5 record" : "Journal record"} · {new Date(trade.closed_at).toLocaleDateString()}</small></span>
+                    <button className="text-link" onClick={() => onOpenTrade(trade.trade_id)}>Open review</button>
+                  </li>
+                ))}</ul>
+              </details>
+            ))}</div> : <p className="empty-inline">No closed trades are eligible in this period.</p>}
+          </section>
+        </>
+      )}
     </div>
   );
 }
