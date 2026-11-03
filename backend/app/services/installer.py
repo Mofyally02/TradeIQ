@@ -9,6 +9,7 @@ MAC_TEMPLATE = r"""#!/bin/bash
 set -e
 URL='__URL__'
 BASE='__BASE__'
+ORIGIN='__ORIGIN__'
 PREFIX="$HOME/Library/Application Support/net.metaquotes.wine.metatrader5"
 DATA="$PREFIX/drive_c/Program Files/MetaTrader 5"
 WINE="/Applications/MetaTrader 5.app/Contents/SharedSupport/wine/bin/wine"
@@ -17,8 +18,8 @@ if [ ! -d "$DATA" ] || [ ! -x "$WINE" ]; then
   echo "MetaTrader 5 was not found. Install it from the MetaQuotes site, open it once, log in, then run this file again."
   read -n 1 -s -r -p "Press any key to close"; exit 1
 fi
-if ! curl --connect-timeout 5 -fsS "$BASE/readyz" >/dev/null; then
-  echo "TradeIQ API is not reachable at $BASE. If MT5 is on another computer or VM, localhost points to that machine. Set PUBLIC_API_URL to an address reachable from MT5 and run setup again."
+if ! curl --connect-timeout 5 --retry 2 -fsS "$ORIGIN/readyz" >/dev/null; then
+  echo "TradeIQ API is not reachable at $ORIGIN. If MT5 is on another computer or VM, localhost points to that machine. Set PUBLIC_API_URL to an address reachable from MT5 and run setup again."
   read -n 1 -s -r -p "Press any key to close"; exit 1
 fi
 command -v python3 >/dev/null || { echo "python3 is required (run: xcode-select --install)"; exit 1; }
@@ -32,6 +33,10 @@ curl -fsSL "$BASE/ea.mq5" -o "$DATA/MQL5/Experts/TradeIQ_Journal.mq5"
 export WINEPREFIX="$PREFIX"
 cd "$DATA"
 "$WINE" metaeditor64.exe /compile:"MQL5\\Experts\\TradeIQ_Journal.mq5" /log:"tradeiq_compile.log" >/dev/null 2>&1 || true
+if [ ! -f "$DATA/MQL5/Experts/TradeIQ_Journal.ex5" ]; then
+  echo "The Expert Advisor did not compile. See $DATA/tradeiq_compile.log"
+  read -n 1 -s -r -p "Press any key to close"; exit 1
+fi
 echo "3/5 Writing your connection settings..."
 utf16() { { printf '\xff\xfe'; iconv -f UTF-8 -t UTF-16LE; } > "$1"; }
 printf 'WebhookURL=%s\r\nSyncHistoryDays=365\r\nPushSeconds=30\r\nUseFileBridge=true\r\n' "$URL" | utf16 "$DATA/MQL5/Presets/TradeIQ.set"
@@ -69,10 +74,10 @@ pause
 exit /b
 #PSBEGIN#
 $ErrorActionPreference = 'Stop'
-$Url = '__URL__'; $Base = '__BASE__'
+$Url = '__URL__'; $Base = '__BASE__'; $Origin = '__ORIGIN__'
 Write-Host 'TradeIQ setup for __NAME__'
-try { Invoke-WebRequest "$Base/readyz" -TimeoutSec 5 -UseBasicParsing | Out-Null }
-catch { Write-Host "TradeIQ API is not reachable at $Base. If MT5 is on another computer or VM, localhost points to that machine. Set PUBLIC_API_URL to an address reachable from MT5 and run setup again."; exit 1 }
+try { Invoke-WebRequest "$Origin/readyz" -TimeoutSec 5 -UseBasicParsing | Out-Null }
+catch { Write-Host "TradeIQ API is not reachable at $Origin. If MT5 is on another computer or VM, localhost points to that machine. Set PUBLIC_API_URL to an address reachable from MT5 and run setup again."; exit 1 }
 $origin = Get-ChildItem "$env:APPDATA\MetaQuotes\Terminal\*\origin.txt" -ErrorAction SilentlyContinue | Where-Object {
   $p = (Get-Content $_.FullName -Raw).Trim([char]0xFEFF).Trim(); Test-Path (Join-Path $p 'terminal64.exe') } | Select-Object -First 1
 if (-not $origin) { Write-Host 'MetaTrader 5 was not found. Install it, open it once and log in, then run this file again.'; exit 1 }
@@ -84,6 +89,7 @@ Write-Host '2/5 Installing the TradeIQ Expert Advisor...'
 New-Item -ItemType Directory -Force "$Data\MQL5\Experts","$Data\MQL5\Files","$Data\MQL5\Presets","$Data\config" | Out-Null
 Invoke-WebRequest "$Base/ea.mq5" -OutFile "$Data\MQL5\Experts\TradeIQ_Journal.mq5"
 & "$Install\metaeditor64.exe" "/compile:$Data\MQL5\Experts\TradeIQ_Journal.mq5" "/log:$Data\tradeiq_compile.log" | Out-Null
+if (-not (Test-Path "$Data\MQL5\Experts\TradeIQ_Journal.ex5")) { Write-Host "The Expert Advisor did not compile. See $Data\tradeiq_compile.log"; exit 1 }
 Write-Host '3/5 Writing your connection settings...'
 "WebhookURL=$Url`r`nSyncHistoryDays=365`r`nPushSeconds=30`r`nUseFileBridge=true`r`n" | Out-File -Encoding Unicode "$Data\MQL5\Presets\TradeIQ.set"
 "__COMMON_PS__[Experts]`r`nAllowLiveTrading=1`r`nEnabled=1`r`nAccount=0`r`nProfile=0`r`n[StartUp]`r`nExpert=TradeIQ_Journal`r`nExpertParameters=TradeIQ.set`r`nSymbol=EURUSD`r`nPeriod=H1`r`n" | Out-File -Encoding Unicode "$Data\config\tradeiq_start.ini"
@@ -141,7 +147,7 @@ def _clean(value: str | None) -> str:
     return re.sub(r"[^A-Za-z0-9 ._\-]", "", value or "")
 
 
-def render_installer(os_name: str, *, name: str, url: str, base: str, login: str | None, server: str | None) -> tuple[str, str, str]:
+def render_installer(os_name: str, *, name: str, url: str, base: str, origin: str, login: str | None, server: str | None) -> tuple[str, str, str]:
     template, filename = (
         (WINDOWS_TEMPLATE, "TradeIQ-Setup.bat") if os_name == "windows" else (MAC_TEMPLATE, "TradeIQ-Setup.command")
     )
@@ -156,6 +162,7 @@ def render_installer(os_name: str, *, name: str, url: str, base: str, login: str
         .replace("__NAME__", _clean(name))
         .replace("__URL__", url)
         .replace("__BASE__", base)
+        .replace("__ORIGIN__", origin)
     )
     if os_name == "windows":
         body = body.replace("\r\n", "\n").replace("\n", "\r\n")

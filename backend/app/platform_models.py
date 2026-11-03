@@ -348,6 +348,51 @@ class DevelopmentExperiment(Base):
     )
 
 
+class AgentInsight(Base):
+    """A finding from the rule-based Trading Agent; rebuilt each run, workflow state is the user's."""
+
+    __tablename__ = "agent_insights"
+    __table_args__ = (
+        UniqueConstraint("user_id", "fingerprint", name="uq_agent_insights_user_fingerprint"),
+        Index("ix_agent_insights_user_active_priority", "user_id", "active", "priority_score"),
+        CheckConstraint(
+            "status IN ('new', 'seen', 'accepted', 'dismissed', 'experiment_running', 'resolved')",
+            name="ck_agent_insights_status",
+        ),
+        CheckConstraint(
+            "feedback IS NULL OR feedback IN ('useful', 'not_useful', 'wrong', 'already_knew')",
+            name="ck_agent_insights_feedback",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[UUID] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("trading_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    fingerprint: Mapped[str] = mapped_column(String(160))
+    code: Mapped[str] = mapped_column(String(40))
+    category: Mapped[str] = mapped_column(String(24))
+    severity: Mapped[str] = mapped_column(String(12))
+    confidence: Mapped[str] = mapped_column(String(12))
+    sample_size: Mapped[int] = mapped_column(Integer)
+    effect_size: Mapped[float | None] = mapped_column(Float, nullable=True)
+    p_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    q_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    est_dollar_impact: Mapped[float | None] = mapped_column(Float, nullable=True)
+    priority_score: Mapped[float] = mapped_column(Float, default=0)
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    recommended_action: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence: Mapped[dict[str, object]] = mapped_column(JSON)
+    holds_out_of_time: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(24), default="new")
+    feedback: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    first_detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class AccountRuleSet(Base):
     __tablename__ = "account_rule_sets"
 

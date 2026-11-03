@@ -42,6 +42,11 @@ export function EaSetupWizard({
 
   const live = status === "connected";
   const installer = `${webhookUrl}/installer/${os}`;
+  const macCommand = `bash <(curl -fsSL '${webhookUrl}/installer/mac')`;
+  const [copied, setCopied] = useState(false);
+  const copyCommand = () => {
+    navigator.clipboard?.writeText(macCommand).then(() => setCopied(true)).catch(() => undefined);
+  };
   const steps: { title: string; body: React.ReactNode }[] = [
     {
       title: "Choose your device",
@@ -61,11 +66,18 @@ export function EaSetupWizard({
       body: (
         <>
           <p>One file installs the connector, links it to <strong>{accountName}</strong> and starts the background sync. It only reads data and cannot place trades.</p>
-          <a className="button button-primary" href={installer} download>{mac ? "Download TradeIQ-Setup.command" : "Download TradeIQ-Setup.bat"}</a>
+          {mac ? (
+            <>
+              <code className="wiz-command">{macCommand}</code>
+              <button type="button" className="button button-primary" onClick={copyCommand}>{copied ? "Copied" : "Copy setup command"}</button>
+            </>
+          ) : (
+            <a className="button button-primary" href={installer} download>Download TradeIQ-Setup.bat</a>
+          )}
           <ol>
             {mac ? (
               <>
-                <li>Open <strong>Terminal</strong> and run <code>bash ~/Downloads/TradeIQ-Setup.command</code> (or right-click the file → <strong>Open</strong> and confirm the macOS prompt).</li>
+                <li>Open <strong>Terminal</strong>, paste the command and press Return. Nothing is downloaded as a file, so macOS shows no &ldquo;unidentified developer&rdquo; warning.</li>
                 <li>Allow the permission prompts: closing and reopening MetaTrader 5, and running the sync service in the background.</li>
               </>
             ) : (

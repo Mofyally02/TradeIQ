@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.api.deps import Database
+from app.core.config import get_settings
 from app.platform_models import AccountConnection, TradingAccount
 from app.services import ea, installer
 
@@ -41,7 +42,7 @@ def download_installer(account_id: UUID, secret: str, os_name: str, db: Database
         raise HTTPException(status_code=404, detail="Unknown platform")
     url = ea.webhook_url(str(account_id), secret)
     body, filename, media = installer.render_installer(
-        os_name, name=account.name, url=url, base=url, login=account.external_account_id, server=account.server_name
+        os_name, name=account.name, url=url, base=url, origin=get_settings().public_api_url.rstrip("/"), login=account.external_account_id, server=account.server_name
     )
     return Response(
         body,

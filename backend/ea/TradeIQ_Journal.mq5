@@ -9,7 +9,7 @@
 input string WebhookURL      = "";   // Full webhook URL shown in TradeIQ
 input int    SyncHistoryDays = 365;  // History imported on first attach
 input int    PushSeconds     = 30;   // How often balance/positions are pushed
-input bool   UseFileBridge   = false; // Write files for the local bridge instead of using WebRequest
+const bool   UseFileBridge   = true;  // Always writes files for the local bridge; WebRequest is never used
 
 int g_seq = 0;
 

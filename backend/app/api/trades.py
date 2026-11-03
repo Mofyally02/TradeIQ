@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import exists, func, select
+from sqlalchemy import delete, exists, func, select
 
 from app.api.deps import CurrentUser, Database
 from app.models import (
@@ -43,6 +43,25 @@ def get_owned_trade(db: Database, user_id: UUID, trade_id: UUID) -> Trade:
     if trade is None:
         raise HTTPException(status_code=404, detail="Trade not found")
     return trade
+
+
+def trade_is_journaled(db: Database, trade: Trade, has_tags: bool | None = None) -> bool:
+    """True when the trader has written anything about the trade."""
+    if (
+        (trade.notes and trade.notes.strip())
+        or trade.setup
+        or trade.emotional_state
+        or trade.confluences
+        or trade.rule_breaks
+    ):
+        return True
+    if has_tags is None:
+        has_tags = db.scalar(select(exists().where(TradeTag.trade_id == trade.id))) or False
+    return bool(
+        has_tags
+        or db.scalar(select(exists().where(TradeJournalSection.trade_id == trade.id)))
+        or db.scalar(select(exists().where(TradeReview.trade_id == trade.id)))
+    )
 
 
 def serialize_trade(db: Database, trade: Trade) -> TradeRead:
@@ -123,6 +142,7 @@ def serialize_trade(db: Database, trade: Trade) -> TradeRead:
         created_at=trade.created_at,
         updated_at=trade.updated_at,
         tags=list(tags),
+        journaled=trade_is_journaled(db, trade, bool(tags)),
     )
 
 
@@ -361,6 +381,72 @@ def update_trade(
             entity_id=str(trade.id),
             source="user",
             details={"fields": ",".join(changes)},
+        )
+    )
+    db.commit()
+    db.refresh(trade)
+    return serialize_trade(db, trade)
+
+
+@router.delete("/{trade_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_trade(trade_id: UUID, current_user: CurrentUser, db: Database) -> None:
+    trade = get_owned_trade(db, current_user.id, trade_id)
+    if trade.source == "mt5":
+        raise HTTPException(
+            status_code=409,
+            detail="Broker-synced trades are re-imported from MetaTrader. Clear the journal instead.",
+        )
+    if trade_is_journaled(db, trade):
+        raise HTTPException(
+            status_code=409,
+            detail="This trade has journal entries, so it cannot be deleted. Only unjournaled trades can be removed.",
+        )
+    db.add(
+        AuditLog(
+            user_id=current_user.id,
+            action="trade.deleted",
+            entity_type="trade",
+            entity_id=str(trade.id),
+            source="user",
+            details={"symbol": trade.symbol},
+        )
+    )
+    db.delete(trade)
+    db.commit()
+
+
+@router.delete("/{trade_id}/journal", response_model=TradeRead)
+def clear_trade_journal(trade_id: UUID, current_user: CurrentUser, db: Database) -> TradeRead:
+    """Remove the trader's own notes, sections, review and tags; broker facts stay."""
+    trade = get_owned_trade(db, current_user.id, trade_id)
+    for model in (TradeJournalSection, TradeReview, TradeTag):
+        db.execute(delete(model).where(model.trade_id == trade.id))
+    trade.notes = None
+    trade.setup = None
+    trade.emotional_state = None
+    trade.confluences = None
+    trade.rule_breaks = None
+    trade.mae_r = None
+    trade.mfe_r = None
+    trade.strategy = "Uncategorized"
+    trade.updated_at = datetime.now(UTC)
+    db.add(
+        TradeEvent(
+            trade_id=trade.id,
+            event_type="journal_cleared",
+            source="user",
+            payload={},
+            occurred_at=datetime.now(UTC),
+        )
+    )
+    db.add(
+        AuditLog(
+            user_id=current_user.id,
+            action="trade.journal_cleared",
+            entity_type="trade",
+            entity_id=str(trade.id),
+            source="user",
+            details={},
         )
     )
     db.commit()

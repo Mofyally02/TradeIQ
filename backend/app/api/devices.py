@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.api.deps import CurrentUser, Database
+from app.core.config import get_settings
 from app.platform_models import DetectedAccount
 from app.schemas import AccountRead
 from app.services import device, installer
@@ -67,7 +68,8 @@ def download_installer(user_id: UUID, secret: str, os_name: str, db: Database) -
         raise HTTPException(status_code=404, detail="Unknown platform")
     url = device.device_url(str(user_id), secret)
     body, filename, media = installer.render_installer(
-        os_name, name="all your MT5 accounts", url=url, base=url, login=None, server=None
+        os_name, name="all your MT5 accounts", url=url, base=url,
+        origin=get_settings().public_api_url.rstrip("/"), login=None, server=None
     )
     return Response(
         body,

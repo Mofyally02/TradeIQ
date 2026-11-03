@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AuthPanel } from "./auth-panel";
+import "./components/agent.css";
 
 type AuthMode = "login" | "register";
 type User = { id: string; full_name: string | null; email: string; created_at: string };
@@ -207,6 +208,7 @@ export function LandingPage({
           <Brand />
           <nav aria-label="Main navigation" className="landing-nav">
             <a href="#features">Features</a>
+            <a href="#trading-agent">TradeIQ Agent</a>
             <a href="#about">About</a>
             <a href="#resources">Resources</a>
           </nav>
@@ -309,6 +311,43 @@ export function LandingPage({
         <div className="agent-points"><span>Private per-user analysis</span><span>No outside AI sees your trades</span><span>Samples flagged until 30 trades</span><span>Associations, not advice</span></div>
       </section>
 
+      <section className="landing-section ta-landing-section" id="trading-agent">
+        <div className="landing-section-heading">
+          <span className="landing-kicker">THE TRADEIQ AGENT</span>
+          <h2>A coach that reads your journal. <span>Without guessing.</span></h2>
+          <p>It runs on your own trades with statistics and rules, not a chatbot. No outside AI sees your data, and nothing is reported until the evidence supports it.</p>
+        </div>
+        <div className="ta-landing-loop">
+          <article><span>01</span><h3>Diagnose</h3><p>Finds leaks such as revenge trades, bad hours, overtrading, oversizing after losses and off-plan entries.</p></article>
+          <article><span>02</span><h3>Hypothesize</h3><p>Each finding ships with one concrete rule to test, ranked by estimated cost.</p></article>
+          <article><span>03</span><h3>Test</h3><p>Start an experiment in one click and track your next 20 trades against the rule.</p></article>
+          <article><span>04</span><h3>Evaluate</h3><p>Findings are re-checked every run and resolve when the leak is gone.</p></article>
+          <article><span>05</span><h3>Lock in</h3><p>Keep what works, retire what does not, and watch your process score climb.</p></article>
+        </div>
+        <div className="ta-landing-split">
+          <div className="ta-landing-card">
+            <h3>What you see in the app</h3>
+            <ul>
+              <li><b>Top priorities.</b> Your three most costly habits, ranked by impact and confidence.</li>
+              <li><b>Process score.</b> Plan adherence, stop discipline, journaling and rule compliance, tracked weekly and separate from P&amp;L.</li>
+              <li><b>Honest core stats.</b> Expectancy, win rate and SQN with confidence ranges.</li>
+              <li><b>Evidence.</b> Every finding links back to the trades behind it.</li>
+            </ul>
+          </div>
+          <div className="ta-landing-card">
+            <h3>Why you can trust it</h3>
+            <ul>
+              <li><b>Minimum samples.</b> No findings from tiny segments.</li>
+              <li><b>Confidence intervals</b> and a multiple-comparison correction guard against noise.</li>
+              <li><b>Replication check.</b> Flags whether a pattern also holds in your later trades.</li>
+              <li><b>Your baseline only.</b> Compared with your own history, never other traders.</li>
+            </ul>
+          </div>
+        </div>
+        <div className="ta-landing-sample"><strong>Example finding:</strong> “Trades opened within 30 minutes of a loss average −0.9R versus +0.4R otherwise (26 trades). Try a mandatory 30-minute break for your next 20 trades.” Illustrative only. Analysis of your own records, not financial advice.</div>
+        <div className="agent-points"><button className="landing-text-link" onClick={() => openAuth("register")}>Meet your TradeIQ Agent <Mark name="arrow" /></button></div>
+      </section>
+
       <section className="landing-section about-section" id="about">
         <div className="about-visual">
           <div className="about-orbit"><div className="about-core"><span>IQ</span><small>YOUR PROCESS</small></div><i className="orbit-node node-one" /><i className="orbit-node node-two" /><i className="orbit-node node-three" /></div>
@@ -345,6 +384,7 @@ export function LandingPage({
           <div><span className="landing-kicker">QUICK ANSWERS</span><h3>Things traders ask.</h3></div>
           <div className="faq-list">
             <details><summary>What happens when I sign in?<span>+</span></summary><p>Your credentials are checked by the TradeIQ API. Once your session is confirmed, your private journal workspace opens.</p></details>
+            <details><summary>What is the TradeIQ Agent?<span>+</span></summary><p>A rule-based analyst that runs only on your own trades. It tests for patterns such as revenge trading, costly hours and off-plan entries, shows the evidence and confidence, and suggests one rule to test. It needs about 30 closed trades with recorded R before it reports anything, and it never gives trading signals.</p></details>
             <details><summary>What is Edge Intelligence?<span>+</span></summary><p>A per-user analytics layer that turns your closed trades, tags and reviews into expectancy, strategy ranking, behavior patterns and a roadmap. It uses only your data and does not give trading signals.</p></details>
             <details><summary>What is EDGE Trader DNA?<span>+</span></summary><p>A Version 3 report that summarizes your recorded trading identity, compares strategy performance when the data supports it, links findings to source trades, and helps you choose measurable development goals. Small samples are not treated as proof of a lasting edge.</p></details>
             <details><summary>Why do some metrics show a dash?<span>+</span></summary><p>Metrics need recorded R-multiples. Nothing is estimated, and profit factor is hidden when accounts mix currencies.</p></details>

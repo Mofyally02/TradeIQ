@@ -1006,6 +1006,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .wiz-body code { padding: 1px 6px; border-radius: 5px; background: #f1efe6; font-size: 12.5px; }
 .wiz-body a.button { justify-self: start; text-decoration: none; padding: 13px 20px; font-size: 14px; }
 .wiz-note { padding: 11px 14px; border-radius: 10px; background: #faf5e8; color: #7a6535; font-size: 12.5px; }
+.wiz-command { display: block; margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: #f3efe4; color: #3b3320; font-size: 12px; word-break: break-all; user-select: all; }
 .wiz-os { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .wiz-os button { display: grid; gap: 4px; justify-items: center; padding: 22px 12px; border: 2px solid #e6e3d8; border-radius: 14px; background: #fff; color: #3a3d34; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; transition: all .15s; }
 .wiz-os button span { font-size: 28px; }
@@ -1193,6 +1194,8 @@ div.account-switcher { display: inline-flex; flex-wrap: wrap; align-items: cente
 .bulk-bar{margin:0 0 .75rem;padding:.75rem 1rem;border:1px solid var(--gold);border-radius:12px;background:var(--gold-soft)}
 .bulk-actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
 .bulk-actions input{padding:.45rem .7rem;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
+.bulk-danger{margin-top:.5rem;padding-top:.5rem;border-top:1px dashed var(--line)}
+.bulk-danger span{font-size:12px;font-weight:600;color:#a13b34;text-transform:uppercase;letter-spacing:.04em}
 .bulk-summary{margin-top:.6rem;display:grid;gap:.25rem;font-size:.9rem}
 .bulk-summary p{margin:0}
 

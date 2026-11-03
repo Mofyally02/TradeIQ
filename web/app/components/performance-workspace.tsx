@@ -386,58 +386,146 @@ export function RoadmapWidget({ data }: { data: PerformanceBundle }) {
   );
 }
 
+function strategyVerdict(row: Cohort) {
+  const n = row.r_sample_count;
+  if (row.expectancy_r == null) return `No R recorded yet. ${fmt(row.win_rate_pct, 0)}% of ${row.trade_count} trades won.`;
+  if (n < MIN_SAMPLE) return `Early read: ${fmtR(row.expectancy_r)} per trade over ${n} recorded trades. Needs ${MIN_SAMPLE - n} more for a firm view.`;
+  return row.expectancy_r > 0.1 ? `Working: earns ${fmtR(row.expectancy_r)} on average per trade.` : row.expectancy_r < 0 ? `Leaking: loses ${fmtR(Math.abs(row.expectancy_r))} on average per trade.` : "Roughly break-even per trade.";
+}
+
 export function StrategyTable({ rows }: { rows: Cohort[] }) {
   if (!rows.length) return <p className="empty-inline">Tag a strategy on your trades to start ranking your edge.</p>;
   return (
-    <div className="table-wrap">
-      <table className="intel-table">
-        <thead><tr><th>Strategy</th><th>Trades</th><th>Win %</th><th>Expectancy</th><th>Profit factor</th><th>Avg hold</th><th>Status</th></tr></thead>
-        <tbody>
-          {rows.map((row) => {
-            const status = strategyStatus(row);
-            return (
-              <tr key={row.key}>
-                <td><strong>{row.key}</strong></td>
-                <td>{row.trade_count}</td>
-                <td>{fmt(row.win_rate_pct, 0)}%</td>
-                <td className={(row.expectancy_r ?? 0) >= 0 ? "positive" : "negative"}>{fmtR(row.expectancy_r)}</td>
-                <td className={profitFactorTone(row.profit_factor)}>{fmt(row.profit_factor)}</td>
-                <td>{row.average_holding_minutes == null ? "—" : `${Math.round(row.average_holding_minutes)}m`}</td>
-                <td><span className={`status-chip chip-${status.tone}`}>{status.label}</span></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="strat-grid">
+      {rows.map((row, index) => {
+        const status = strategyStatus(row);
+        const win = row.win_rate_pct ?? 0;
+        const hasPayoff = row.average_win_r != null && row.average_loss_r != null;
+        const span = Math.max(0.01, Math.abs(row.average_win_r ?? 0), Math.abs(row.average_loss_r ?? 0));
+        return (
+          <article className={`strat-card tone-${status.tone}`} key={row.key}>
+            <header>
+              <span className={`strat-rank rank-${index + 1}`}>{index + 1}</span>
+              <div><strong>{row.key}</strong><small>{row.trade_count} trades · {row.wins}W {row.losses}L</small></div>
+              <span className={`status-chip chip-${status.tone}`}>{status.label}</span>
+            </header>
+            <div className="strat-main">
+              <div className="strat-ring" style={{ "--win": `${win}%` } as React.CSSProperties}><b>{fmt(win, 0)}%</b><small>win rate</small></div>
+              <div className="strat-stats">
+                <div><span>Expectancy</span><strong className={(row.expectancy_r ?? 0) >= 0 ? "positive" : "negative"}>{fmtR(row.expectancy_r)}</strong></div>
+                <div><span>Profit factor</span><strong className={profitFactorTone(row.profit_factor)}>{fmt(row.profit_factor)}</strong></div>
+                <div><span>Avg hold</span><strong>{row.average_holding_minutes == null ? "—" : `${Math.round(row.average_holding_minutes)}m`}</strong></div>
+                <div><span>Max drawdown</span><strong>{row.max_drawdown_r == null ? "—" : `${fmt(row.max_drawdown_r)}R`}</strong></div>
+              </div>
+            </div>
+            {hasPayoff ? (
+              <div className="strat-payoff" aria-label="Average win versus average loss">
+                <div><em>Avg win</em><div className="strat-bar"><i className="up" style={{ width: `${(Math.abs(row.average_win_r ?? 0) / span) * 100}%` }} /></div><b>{fmtR(row.average_win_r)}</b></div>
+                <div><em>Avg loss</em><div className="strat-bar"><i className="down" style={{ width: `${(Math.abs(row.average_loss_r ?? 0) / span) * 100}%` }} /></div><b>{fmtR(row.average_loss_r)}</b></div>
+              </div>
+            ) : (
+              <div className="strat-payoff"><div><em>Wins vs losses</em><div className="strat-bar split"><i className="up" style={{ width: `${win}%` }} /><i className="down" style={{ width: `${100 - win}%` }} /></div></div></div>
+            )}
+            <p className="strat-verdict">{strategyVerdict(row)}</p>
+            <div className="strat-sample" title={`${row.r_sample_count} of ${MIN_SAMPLE} trades with recorded R`}><div><i style={{ width: `${Math.min(100, (row.r_sample_count / MIN_SAMPLE) * 100)}%` }} /></div><small>{row.r_sample_count}/{MIN_SAMPLE} recorded R for a reliable read</small></div>
+          </article>
+        );
+      })}
     </div>
   );
 }
 
+type Lens = "r" | "win";
+
+// Use expectancy when R is recorded; otherwise fall back to win rate so the chart is never blank.
+function pickLens(rows: Cohort[]): Lens {
+  return rows.some((row) => row.expectancy_r != null) ? "r" : "win";
+}
+function lensValue(row: Cohort, lens: Lens) {
+  return lens === "r" ? row.expectancy_r : row.win_rate_pct;
+}
+function lensTone(row: Cohort, lens: Lens) {
+  const value = lensValue(row, lens);
+  if (value == null) return "none";
+  if (lens === "r") return value > 0.05 ? "up" : value < -0.05 ? "down" : "flat";
+  return value >= 55 ? "up" : value < 45 ? "down" : "flat";
+}
+function lensText(row: Cohort, lens: Lens) {
+  return lens === "r" ? fmtR(row.expectancy_r) : `${fmt(row.win_rate_pct, 0)}%`;
+}
+const lensNote = (lens: Lens) => (lens === "r" ? "Average R per trade. Green is profitable, red loses." : "Share of trades that won. Add R-multiples to your trades to see expectancy instead.");
+
 export function CohortBars({ rows, label }: { rows: Cohort[]; label: (key: string) => string }) {
   if (!rows.length) return <p className="empty-inline">No data yet.</p>;
+  const lens = pickLens(rows);
   const max = Math.max(0.01, ...rows.map((row) => Math.abs(row.expectancy_r ?? 0)));
   return (
     <div className="cohort-bars">
-      {rows.map((row) => (
-        <div className="cohort-row" key={row.key} title={`${row.trade_count} trades · win ${fmt(row.win_rate_pct, 0)}%`}>
-          <span>{label(row.key)}</span>
-          <div className="cohort-track"><i className={(row.expectancy_r ?? 0) >= 0 ? "up" : "down"} style={{ width: `${row.expectancy_r == null ? 0 : Math.max(4, (Math.abs(row.expectancy_r) / max) * 100)}%` }} /></div>
-          <b>{fmtR(row.expectancy_r)}</b>
-          <small>n={row.trade_count}</small>
-        </div>
-      ))}
+      <p className="cohort-caption">{lensNote(lens)}</p>
+      {rows.map((row) => {
+        const tone = lensTone(row, lens);
+        const width = lens === "win" ? row.win_rate_pct ?? 0 : row.expectancy_r == null ? 0 : (Math.abs(row.expectancy_r) / max) * 100;
+        const thin = row.trade_count < 5;
+        return (
+          <div className={`cohort-row ${thin ? "thin" : ""}`} key={row.key} title={thin ? "Small sample: treat as a hint, not a pattern" : undefined}>
+            <span>{label(row.key)}</span>
+            <div className="cohort-track">{lens === "win" && <em aria-hidden="true" />}<i className={tone} style={{ width: `${Math.max(width, 3)}%` }} /></div>
+            <b className={tone}>{lensText(row, lens)}</b>
+            <small>{row.trade_count} {row.trade_count === 1 ? "trade" : "trades"} · {row.wins}W {row.losses}L{thin ? " · few" : ""}</small>
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
+function TimeHighlights({ hours, days }: { hours: Cohort[]; days: Cohort[] }) {
+  const lens = pickLens([...hours, ...days]);
+  const ranked = (rows: Cohort[]) => rows.filter((row) => row.trade_count >= 3 && lensValue(row, lens) != null).sort((a, b) => (lensValue(b, lens) ?? 0) - (lensValue(a, lens) ?? 0));
+  const h = ranked(hours);
+  const d = ranked(days);
+  const busiest = [...hours].sort((a, b) => b.trade_count - a.trade_count)[0];
+  const cards: Array<[string, string, string, string]> = [
+    ["Best hour", h[0] ? `${h[0].key}:00` : "—", h[0] ? `${lensText(h[0], lens)} over ${h[0].trade_count} trades` : "Needs 3+ trades in an hour", "up"],
+    ["Weakest hour", h.length > 1 ? `${h[h.length - 1].key}:00` : "—", h.length > 1 ? `${lensText(h[h.length - 1], lens)} over ${h[h.length - 1].trade_count} trades` : "Needs 3+ trades in an hour", "down"],
+    ["Best day", d[0] ? d[0].key : "—", d[0] ? `${lensText(d[0], lens)} over ${d[0].trade_count} trades` : "Needs 3+ trades in a day", "up"],
+    ["Busiest hour", busiest ? `${busiest.key}:00` : "—", busiest ? `${busiest.trade_count} trades opened` : "", "flat"],
+  ];
+  return <div className="time-highlights">{cards.map(([title, value, note, tone]) => <div key={title} className={`time-card ${tone}`}><span>{title}</span><strong>{value}</strong><small>{note}</small></div>)}</div>;
+}
+
+function HourStrip({ rows }: { rows: Cohort[] }) {
+  const lens = pickLens(rows);
+  const byHour = new Map(rows.map((row) => [Number(row.key), row]));
+  const peak = Math.max(1, ...rows.map((row) => row.trade_count));
+  return (
+    <div>
+      <div className="hour-strip" role="list" aria-label="Performance by hour of day">
+        {Array.from({ length: 24 }, (_, hour) => {
+          const row = byHour.get(hour);
+          const tone = row ? lensTone(row, lens) : "none";
+          return (
+            <div role="listitem" key={hour} className={`hour-cell ${tone}`} style={{ opacity: row ? 0.45 + 0.55 * (row.trade_count / peak) : 1 }} title={row ? `${String(hour).padStart(2, "0")}:00 · ${row.trade_count} trades · ${lensText(row, lens)} · ${row.wins}W ${row.losses}L` : `${String(hour).padStart(2, "0")}:00 · no trades`}>
+              <b>{row ? row.trade_count : ""}</b><small>{String(hour).padStart(2, "0")}</small>
+            </div>
+          );
+        })}
+      </div>
+      <div className="hour-legend"><span><i className="up" />Doing well</span><span><i className="flat" />Break-even</span><span><i className="down" />Losing</span><span><i className="none" />No trades</span><span>Number = trades · stronger colour = more trades</span></div>
+      <p className="cohort-caption">{lensNote(lens)}</p>
+    </div>
+  );
+}
+
 export function TimeAnalysis({ data }: { data: PerformanceBundle }) {
   const weekdays = [...data.byWeekday].sort((a, b) => WEEKDAYS.indexOf(a.key) - WEEKDAYS.indexOf(b.key));
   return (
-    <div className="analysis-grid">
-      <div className="panel"><div className="subsection-heading"><div><span className="eyebrow">BY HOUR</span><h3>Expectancy by entry hour</h3></div></div><CohortBars rows={data.byHour} label={(key) => `${key}:00`} /></div>
-      <div className="panel"><div className="subsection-heading"><div><span className="eyebrow">BY WEEKDAY</span><h3>Expectancy by day</h3></div></div><CohortBars rows={weekdays} label={(key) => key.slice(0, 3)} /></div>
+    <div className="content-stack">
+      <TimeHighlights hours={data.byHour} days={weekdays} />
+      <div className="panel"><div className="subsection-heading"><div><span className="eyebrow">BY HOUR</span><h3>When you trade, around the clock</h3></div></div><HourStrip rows={data.byHour} /></div>
+      <div className="panel"><div className="subsection-heading"><div><span className="eyebrow">BY WEEKDAY</span><h3>How each day performs</h3></div></div><CohortBars rows={weekdays} label={(key) => key.slice(0, 3)} /></div>
       <p className="muted-small analysis-note">Times use your selected timezone. Windows describe history; they do not prove a time causes edge.</p>
     </div>
   );
@@ -562,26 +650,48 @@ export function AnalyticsWorkspace({ data, rValues }: { data: PerformanceBundle;
 export function StrategyLab({ data }: { data: PerformanceBundle }) {
   const [a, setA] = useState("");
   const [b, setB] = useState("");
-  const rowA = data.strategies.find((row) => row.key === a);
-  const rowB = data.strategies.find((row) => row.key === b);
-  const lines: Array<[string, (row: Cohort) => string]> = [
-    ["Trades", (row) => String(row.trade_count)],
-    ["Win rate", (row) => `${fmt(row.win_rate_pct, 0)}%`],
-    ["Expectancy", (row) => fmtR(row.expectancy_r)],
-    ["Profit factor", (row) => fmt(row.profit_factor)],
-    ["Avg win / loss", (row) => `${fmtR(row.average_win_r)} / ${fmtR(row.average_loss_r)}`],
-    ["Max drawdown", (row) => `${fmt(row.max_drawdown_r)}R`],
+  const keyA = a || data.strategies[0]?.key || "";
+  const keyB = b || data.strategies.find((row) => row.key !== keyA)?.key || "";
+  const rowA = data.strategies.find((row) => row.key === keyA);
+  const rowB = data.strategies.find((row) => row.key === keyB);
+  const lines: Array<{ label: string; get: (row: Cohort) => number | null; show: (row: Cohort) => string; lowerIsBetter?: boolean }> = [
+    { label: "Win rate", get: (row) => row.win_rate_pct, show: (row) => `${fmt(row.win_rate_pct, 0)}%` },
+    { label: "Expectancy", get: (row) => row.expectancy_r, show: (row) => fmtR(row.expectancy_r) },
+    { label: "Profit factor", get: (row) => row.profit_factor, show: (row) => fmt(row.profit_factor) },
+    { label: "Average win", get: (row) => row.average_win_r, show: (row) => fmtR(row.average_win_r) },
+    { label: "Average loss", get: (row) => (row.average_loss_r == null ? null : Math.abs(row.average_loss_r)), show: (row) => fmtR(row.average_loss_r), lowerIsBetter: true },
+    { label: "Max drawdown", get: (row) => row.max_drawdown_r, show: (row) => (row.max_drawdown_r == null ? "—" : `${fmt(row.max_drawdown_r)}R`), lowerIsBetter: true },
+    { label: "Trades", get: (row) => row.trade_count, show: (row) => String(row.trade_count) },
   ];
   return (
     <div className="content-stack">
       <section className="panel intelligence-workspace"><div className="subsection-heading"><div><span className="eyebrow">LEADERBOARD</span><h3>Strategies ranked by observed expectancy</h3></div><span className="muted-small">Status needs ≥{MIN_SAMPLE} recorded R</span></div><StrategyTable rows={data.strategies} /></section>
       <section className="panel intelligence-workspace">
-        <div className="subsection-heading"><div><span className="eyebrow">COMPARE</span><h3>Strategy A vs Strategy B</h3></div></div>
+        <div className="subsection-heading"><div><span className="eyebrow">HEAD TO HEAD</span><h3>Compare two strategies</h3></div></div>
         <div className="compare-pickers">
-          <select aria-label="Strategy A" value={a} onChange={(event) => setA(event.target.value)}><option value="">Choose strategy A</option>{data.strategies.map((row) => <option key={row.key}>{row.key}</option>)}</select>
-          <select aria-label="Strategy B" value={b} onChange={(event) => setB(event.target.value)}><option value="">Choose strategy B</option>{data.strategies.map((row) => <option key={row.key}>{row.key}</option>)}</select>
+          <select aria-label="Strategy A" value={keyA} onChange={(event) => setA(event.target.value)}>{data.strategies.map((row) => <option key={row.key}>{row.key}</option>)}</select>
+          <span className="vs-pill">VS</span>
+          <select aria-label="Strategy B" value={keyB} onChange={(event) => setB(event.target.value)}>{data.strategies.map((row) => <option key={row.key}>{row.key}</option>)}</select>
         </div>
-        {rowA && rowB ? <div className="compare-table">{lines.map(([label, read]) => <div key={label}><span>{label}</span><b>{read(rowA)}</b><b>{read(rowB)}</b></div>)}</div> : <p className="empty-inline">Pick two strategies to compare them side by side.</p>}
+        {rowA && rowB && rowA.key !== rowB.key ? (
+          <div className="h2h">
+            <div className="h2h-head"><strong className="side-a">{rowA.key}</strong><strong className="side-b">{rowB.key}</strong></div>
+            {lines.map((line) => {
+              const va = line.get(rowA);
+              const vb = line.get(rowB);
+              const top = Math.max(0.0001, Math.abs(va ?? 0), Math.abs(vb ?? 0));
+              const better = va == null || vb == null || va === vb ? null : (va > vb) !== Boolean(line.lowerIsBetter) ? "a" : "b";
+              return (
+                <div className="h2h-row" key={line.label}>
+                  <div className={`h2h-side a ${better === "a" ? "win" : ""}`}><b>{line.show(rowA)}</b><div><i style={{ width: `${(Math.abs(va ?? 0) / top) * 100}%` }} /></div></div>
+                  <span>{line.label}</span>
+                  <div className={`h2h-side b ${better === "b" ? "win" : ""}`}><b>{line.show(rowB)}</b><div><i style={{ width: `${(Math.abs(vb ?? 0) / top) * 100}%` }} /></div></div>
+                </div>
+              );
+            })}
+            <p className="muted-small">Highlighted side is stronger on that measure. Small samples can flip these results.</p>
+          </div>
+        ) : <p className="empty-inline">Add at least two strategies to your trades to compare them.</p>}
       </section>
       <div className="analysis-grid">
         <div className="panel"><div className="subsection-heading"><div><span className="eyebrow">CONFLUENCES</span><h3>Expectancy by recorded confluence</h3></div></div><CohortBars rows={data.confluences} label={(key) => key} /></div>

@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import Image from "next/image";
-import { BrainCircuit, ChartNoAxesCombined, ClipboardCheck, ClipboardList, Crosshair, FileChartColumn, LayoutDashboard, NotebookPen, Route, ShieldCheck, Target, WalletCards } from "lucide-react";
+import { BrainCircuit, Bot, ChartNoAxesCombined, ClipboardCheck, ClipboardList, Crosshair, FileChartColumn, LayoutDashboard, NotebookPen, Route, ShieldCheck, Target, WalletCards } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ApiError, apiRequest, getApiBaseUrl } from "./api";
 import { AccountSwitcher, DetectedAccountsBanner, useDetectedAccounts } from "./multi-account";
@@ -13,8 +13,8 @@ import { EditAccountModal } from "./edit-account-modal";
 import { PnlCalendar } from "./components/pnl-calendar";
 import { ReportsPage, AnalyticsWorkspace, DevelopmentRoadmap, RiskIntelligence, StrategyLab, AskAgentPanel, EdgeSnapshot, RoadmapWidget, fmtR, profitFactorTone, usePerformanceData } from "./components/performance-workspace";
 import { LandingPage } from "./landing-page";
-
-type ViewId = "overview" | "journal" | "plans" | "reviews" | "analytics" | "intelligence" | "strategies" | "risk" | "execution" | "roadmap" | "reports" | "accounts";
+import { AgentPage } from "./components/agent-workspace";
+type ViewId = "overview" | "journal" | "plans" | "reviews" | "analytics" | "intelligence" | "agent" | "strategies" | "risk" | "execution" | "roadmap" | "reports" | "accounts";
 type TradeOutcome = "Win" | "Loss" | "Flat" | "Open" | "Planned" | "Discarded";
 type Trade = {
   id: string;
@@ -157,7 +157,7 @@ type DashboardDateRange = {
 
 const navIcons: Record<ViewId, LucideIcon> = {
   overview: LayoutDashboard, journal: NotebookPen, plans: ClipboardList, reviews: ClipboardCheck, analytics: ChartNoAxesCombined,
-  intelligence: BrainCircuit, strategies: Target, execution: Crosshair, risk: ShieldCheck, roadmap: Route, reports: FileChartColumn, accounts: WalletCards,
+  intelligence: BrainCircuit, agent: Bot, strategies: Target, execution: Crosshair, risk: ShieldCheck, roadmap: Route, reports: FileChartColumn, accounts: WalletCards,
 };
 
 const navigation: { id: ViewId; label: string; icon: string }[] = [
@@ -167,6 +167,7 @@ const navigation: { id: ViewId; label: string; icon: string }[] = [
   { id: "reviews", label: "Reviews", icon: "check" },
   { id: "analytics", label: "Analytics", icon: "chart" },
   { id: "intelligence", label: "Edge Intelligence", icon: "spark" },
+  { id: "agent", label: "TradeIQ Agent", icon: "spark" },
   { id: "strategies", label: "Strategy Lab", icon: "target" },
   { id: "execution", label: "Execution Lab", icon: "check" },
   { id: "risk", label: "Risk Intelligence", icon: "wallet" },
@@ -176,6 +177,66 @@ const navigation: { id: ViewId; label: string; icon: string }[] = [
 ];
 
 const STORAGE_KEY = "tradeiq.journal.v1";
+const DRAFT_PREFIX = "tradeiq.draft.";
+
+// Maps a FastAPI 422 body (JSON-encoded by apiRequest) to per-field messages.
+function apiFieldErrors(error: unknown): Record<string, string> | null {
+  if (!(error instanceof ApiError) || error.status !== 422) return null;
+  try {
+    const items: unknown = JSON.parse(error.message);
+    if (!Array.isArray(items)) return null;
+    const result: Record<string, string> = {};
+    for (const item of items) {
+      const loc = (item as { loc?: unknown[] }).loc;
+      const field = Array.isArray(loc) ? String(loc[loc.length > 1 ? 1 : 0]) : "";
+      const msg = String((item as { msg?: unknown }).msg ?? "Invalid value").replace(/^Value error, /, "");
+      if (field && !(field in result)) result[field] = msg;
+    }
+    return Object.keys(result).length ? result : null;
+  } catch {
+    return null;
+  }
+}
+
+// The API requires a timezone offset; treat offset-less timestamps as UTC.
+function utcTimestamp(value: string): string {
+  const normalized = /(Z|[+-]\d{2}:?\d{2})$/i.test(value) ? value : `${value}Z`;
+  const time = Date.parse(normalized);
+  return new Date(Number.isNaN(time) ? Date.now() : time).toISOString();
+}
+
+// Like useState, but keeps the value in localStorage until clearDrafts() is called for its scope.
+function useDraftState<T extends string = string>(scope: string, field: string, initialValue: string) {
+  const initial = initialValue as T;
+  const key = `${DRAFT_PREFIX}${scope}.${field}`;
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const saved = window.localStorage.getItem(key);
+      return saved === null ? initial : (JSON.parse(saved) as T);
+    } catch {
+      return initial;
+    }
+  });
+  useEffect(() => {
+    try {
+      if (value === initial) window.localStorage.removeItem(key);
+      else window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // Storage can be full or blocked; the form still works without a draft.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, key]);
+  return [value, setValue] as const;
+}
+
+function clearDrafts(scope: string) {
+  try {
+    const prefix = `${DRAFT_PREFIX}${scope}.`;
+    Object.keys(window.localStorage).filter((name) => name.startsWith(prefix)).forEach((name) => window.localStorage.removeItem(name));
+  } catch {
+    // Nothing to clear when storage is unavailable.
+  }
+}
 const ACTIVE_VIEW_KEY = "tradeiq.activeView";
 
 type SavedWorkspace = {
@@ -193,6 +254,7 @@ const viewCopy: Record<ViewId, { title: string; description: string }> = {
   reviews: { title: "Trade reviews", description: "Turn completed trades into one clear next action." },
   analytics: { title: "Performance analytics", description: "Read process and outcomes together, with context." },
   intelligence: { title: "Edge Intelligence", description: "What is happening, what your data reveals, what to work on, and whether you are improving." },
+  agent: { title: "TradeIQ Agent", description: "Your personal coach: statistically guarded findings, rules to test, and a process score that tracks real progress." },
   strategies: { title: "Strategy Lab", description: "Rank and compare the setups you actually trade." },
   execution: { title: "Execution Lab", description: "Planned versus actual: how closely your execution followed the trade you planned." },
   risk: { title: "Risk Intelligence", description: "Drawdown, discipline and the cost of rule breaks." },
@@ -669,7 +731,7 @@ function TradeTable({ trades, compact = false, onManageTrade, selected, onToggle
   );
 }
 
-function BulkBar({ trades, strategy, busy, askOpen, onStrategy, onAsk, onClear, onApply }: { trades: Trade[]; strategy: string; busy: boolean; askOpen: boolean; onStrategy: (value: string) => void; onAsk: () => void; onClear: () => void; onApply: () => void }) {
+function BulkBar({ trades, strategy, busy, askOpen, onStrategy, onAsk, onClear, onApply, onRemove }: { trades: Trade[]; strategy: string; busy: boolean; askOpen: boolean; onStrategy: (value: string) => void; onAsk: () => void; onClear: () => void; onApply: () => void; onRemove: (mode: "delete" | "clear") => void }) {
   const closed = trades.filter((trade) => trade.pnl !== null);
   const rs = trades.map((trade) => trade.rMultiple).filter((value): value is number => typeof value === "number");
   const wins = closed.filter((trade) => (trade.pnl ?? 0) > 0).length;
@@ -683,6 +745,11 @@ function BulkBar({ trades, strategy, busy, askOpen, onStrategy, onAsk, onClear, 
         <button className="button" disabled={busy || !strategy.trim()} onClick={onApply}>{busy ? "Applying…" : "Apply tag"}</button>
         <button className="button button-outline" onClick={onAsk}>Ask Agent about these trades</button>
         <button className="button button-outline" onClick={onClear}>Clear</button>
+      </div>
+      <div className="bulk-actions bulk-danger" role="group" aria-label="Remove selected trades or journals">
+        <span>Remove</span>
+        <button className="button button-outline" disabled={busy} onClick={() => onRemove("clear")}>Clear journal notes</button>
+        <button className="button button-danger" disabled={busy} onClick={() => onRemove("delete")}>Delete trades</button>
       </div>
       {askOpen && (
         <div className="bulk-summary">
@@ -768,12 +835,12 @@ function isSupportedTimezone(value: string) {
 }
 
 function QuickCaptureModal({ onClose, onSave }: { onClose: () => void; onSave: (trade: Trade) => void }) {
-  const [symbol, setSymbol] = useState("");
-  const [direction, setDirection] = useState<"Long" | "Short">("Long");
-  const [strategy, setStrategy] = useState("");
-  const [plan, setPlan] = useState("");
-  const [setupNotes, setSetupNotes] = useState("");
-  const [setupEmotion, setSetupEmotion] = useState("Neutral");
+  const [symbol, setSymbol] = useDraftState("capture", "symbol", "");
+  const [direction, setDirection] = useDraftState<"Long" | "Short">("capture", "direction", "Long");
+  const [strategy, setStrategy] = useDraftState("capture", "strategy", "");
+  const [plan, setPlan] = useDraftState("capture", "plan", "");
+  const [setupNotes, setSetupNotes] = useDraftState("capture", "setupNotes", "");
+  const [setupEmotion, setSetupEmotion] = useDraftState("capture", "setupEmotion", "Neutral");
   const [error, setError] = useState("");
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -830,32 +897,42 @@ function QuickCaptureModal({ onClose, onSave }: { onClose: () => void; onSave: (
   );
 }
 
-function ExecutionModal({ plan, onClose, onSave }: { plan: Trade; onClose: () => void; onSave: (trade: Trade) => void }) {
+function ExecutionModal({ plan, serverErrors, onClose, onSave }: { plan: Trade; serverErrors: Record<string, string>; onClose: () => void; onSave: (trade: Trade) => void }) {
   const isPlanned = plan.outcome === "Planned";
   const wasClosed = plan.outcome === "Win" || plan.outcome === "Loss" || plan.outcome === "Flat";
-  const [entryPrice, setEntryPrice] = useState(plan.entryPrice?.toString() ?? "");
-  const [stopLoss, setStopLoss] = useState(plan.stopLoss?.toString() ?? "");
-  const [takeProfit, setTakeProfit] = useState(plan.takeProfit?.toString() ?? "");
-  const [exitPrice, setExitPrice] = useState(plan.exitPrice?.toString() ?? "");
-  const [size, setSize] = useState(plan.size?.toString() ?? "");
-  const [pnl, setPnl] = useState(plan.pnl?.toString() ?? "");
-  const [rMultiple, setRMultiple] = useState(plan.rMultiple?.toString() ?? "");
-  const [setupNotes, setSetupNotes] = useState(plan.setupNotes ?? "");
-  const [setupEmotion, setSetupEmotion] = useState(plan.setupEmotion ?? "Neutral");
-  const [stage, setStage] = useState<TradeJournalEntry["stage"]>(isPlanned ? "Execution" : wasClosed ? "Exit" : "Management");
-  const [emotion, setEmotion] = useState("Neutral");
-  const [journalNote, setJournalNote] = useState("");
-  const [isClosed, setIsClosed] = useState(wasClosed);
-  const [setupName, setSetupName] = useState(plan.setupName ?? "");
-  const [maeR, setMaeR] = useState(plan.maeR?.toString() ?? "");
-  const [mfeR, setMfeR] = useState(plan.mfeR?.toString() ?? "");
-  const [emotionalState, setEmotionalState] = useState(plan.emotionalState ?? "");
-  const [confluences, setConfluences] = useState((plan.confluences ?? []).join(", "));
-  const [ruleBreaks, setRuleBreaks] = useState((plan.ruleBreaks ?? []).join(", "));
+  const draft = `exec.${plan.id}`;
+  const [entryPrice, setEntryPrice] = useDraftState(draft, "entryPrice", plan.entryPrice?.toString() ?? "");
+  const [stopLoss, setStopLoss] = useDraftState(draft, "stopLoss", plan.stopLoss?.toString() ?? "");
+  const [takeProfit, setTakeProfit] = useDraftState(draft, "takeProfit", plan.takeProfit?.toString() ?? "");
+  const [exitPrice, setExitPrice] = useDraftState(draft, "exitPrice", plan.exitPrice?.toString() ?? "");
+  const [size, setSize] = useDraftState(draft, "size", plan.size?.toString() ?? "");
+  const [pnl, setPnl] = useDraftState(draft, "pnl", plan.pnl?.toString() ?? "");
+  const [rMultiple, setRMultiple] = useDraftState(draft, "rMultiple", plan.rMultiple?.toString() ?? "");
+  const [setupNotes, setSetupNotes] = useDraftState(draft, "setupNotes", plan.setupNotes ?? "");
+  const [setupEmotion, setSetupEmotion] = useDraftState(draft, "setupEmotion", plan.setupEmotion ?? "Neutral");
+  const [stage, setStage] = useDraftState<TradeJournalEntry["stage"]>(draft, "stage", isPlanned ? "Execution" : wasClosed ? "Exit" : "Management");
+  const [emotion, setEmotion] = useDraftState(draft, "emotion", "Neutral");
+  const [journalNote, setJournalNote] = useDraftState(draft, "journalNote", "");
+  const [isClosedDraft, setIsClosedDraft] = useDraftState<"yes" | "no">(draft, "isClosed", wasClosed ? "yes" : "no");
+  const isClosed = isClosedDraft === "yes";
+  const setIsClosed = (value: boolean) => setIsClosedDraft(value ? "yes" : "no");
+  const [setupName, setSetupName] = useDraftState(draft, "setupName", plan.setupName ?? "");
+  const [maeR, setMaeR] = useDraftState(draft, "maeR", plan.maeR?.toString() ?? "");
+  const [mfeR, setMfeR] = useDraftState(draft, "mfeR", plan.mfeR?.toString() ?? "");
+  const [emotionalState, setEmotionalState] = useDraftState(draft, "emotionalState", plan.emotionalState ?? "");
+  const [confluences, setConfluences] = useDraftState(draft, "confluences", (plan.confluences ?? []).join(", "));
+  const [ruleBreaks, setRuleBreaks] = useDraftState(draft, "ruleBreaks", (plan.ruleBreaks ?? []).join(", "));
   const [error, setError] = useState("");
+  const [localErrors, setLocalErrors] = useState<Record<string, string>>({});
+  const fieldErrors = { ...serverErrors, ...localErrors };
+  const fieldError = (name: string) => fieldErrors[name] ? <span className="form-error" role="alert">{fieldErrors[name]}</span> : null;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const labelLimit = (value: string, name: string) => value.split(",").some((item) => item.trim().length > 120) ? { [name]: "Each item must be 120 characters or fewer; separate items with commas." } : {};
+    const found = { ...labelLimit(confluences, "confluences"), ...labelLimit(ruleBreaks, "rule_breaks") };
+    setLocalErrors(found);
+    if (Object.keys(found).length) return;
     const parsedEntry = entryPrice.trim() ? Number(entryPrice) : null;
     const parsedSize = size.trim() ? Number(size) : null;
     const parsedStopLoss = stopLoss.trim() ? Number(stopLoss) : null;
@@ -927,16 +1004,16 @@ function ExecutionModal({ plan, onClose, onSave }: { plan: Trade; onClose: () =>
     <div className="execution-plan"><span>{isPlanned ? "PRE-TRADE PLAN" : `CURRENT STATUS · ${plan.outcome.toUpperCase()}`}</span><p>{plan.plan}</p></div>
     <form onSubmit={submit}>
       <label>Trade setup<textarea value={setupNotes} onChange={(event) => setSetupNotes(event.target.value)} placeholder="Market context, setup confirmation, and what would invalidate it..." rows={2} /></label>
-      <div className="form-row"><label>Setup emotion<select value={setupEmotion} onChange={(event) => setSetupEmotion(event.target.value)}><option>Neutral</option><option>Calm</option><option>Confident</option><option>Anxious</option><option>Fearful</option><option>Frustrated</option><option>Excited</option><option>Other</option></select></label><label>Position size<input disabled={plan.source === "mt5"} inputMode="decimal" value={size} onChange={(event) => setSize(event.target.value)} placeholder="e.g. 0.10 lots" /></label></div>
-      <div className="form-row"><label>Average fill price<input disabled={plan.source === "mt5"} inputMode="decimal" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} placeholder="e.g. 2348.50" /></label><label>Stop loss<input disabled={plan.source === "mt5"} inputMode="decimal" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} placeholder="Optional" /></label></div>
-      <div className="form-row"><label>Take profit<input disabled={plan.source === "mt5"} inputMode="decimal" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" /></label>{!wasClosed && <label>Journal stage<select value={stage} onChange={(event) => setStage(event.target.value as TradeJournalEntry["stage"])}><option>Execution</option><option>Management</option><option>Exit</option></select></label>}</div>
+      <div className="form-row"><label>Setup emotion<select value={setupEmotion} onChange={(event) => setSetupEmotion(event.target.value)}><option>Neutral</option><option>Calm</option><option>Confident</option><option>Anxious</option><option>Fearful</option><option>Frustrated</option><option>Excited</option><option>Other</option></select></label><label>Position size<input disabled={plan.source === "mt5"} inputMode="decimal" value={size} onChange={(event) => setSize(event.target.value)} placeholder="e.g. 0.10 lots" />{fieldError("size")}</label></div>
+      <div className="form-row"><label>Average fill price<input disabled={plan.source === "mt5"} inputMode="decimal" value={entryPrice} onChange={(event) => setEntryPrice(event.target.value)} placeholder="e.g. 2348.50" />{fieldError("entry_price")}</label><label>Stop loss<input disabled={plan.source === "mt5"} inputMode="decimal" value={stopLoss} onChange={(event) => setStopLoss(event.target.value)} placeholder="Optional" />{fieldError("stop_loss")}</label></div>
+      <div className="form-row"><label>Take profit<input disabled={plan.source === "mt5"} inputMode="decimal" value={takeProfit} onChange={(event) => setTakeProfit(event.target.value)} placeholder="Optional" />{fieldError("take_profit")}</label>{!wasClosed && <label>Journal stage<select value={stage} onChange={(event) => setStage(event.target.value as TradeJournalEntry["stage"])}><option>Execution</option><option>Management</option><option>Exit</option></select></label>}</div>
       {!wasClosed && plan.source !== "mt5" && <label className="checkbox-label"><input type="checkbox" checked={isClosed} onChange={(event) => setIsClosed(event.target.checked)} /> This exposure is closed</label>}
       {isClosed && <div className="form-row"><label>{plan.source === "mt5" ? "Broker-reported realized P&L" : "Realized P&L"}<input disabled={plan.source === "mt5"} inputMode="decimal" value={pnl} onChange={(event) => setPnl(event.target.value)} placeholder="e.g. 120.00 or -45.00" /></label><label>Exit price <span className="optional-label">Optional</span><input disabled={plan.source === "mt5"} inputMode="decimal" value={exitPrice} onChange={(event) => setExitPrice(event.target.value)} placeholder="e.g. 2353.10" /></label></div>}
       {isClosed && <label>Outcome in R <span className="optional-label">Optional</span><input disabled={plan.source === "mt5"} inputMode="decimal" value={rMultiple} onChange={(event) => setRMultiple(event.target.value)} placeholder="e.g. 1.5" /></label>}
       <div className="v2-context-fields"><span className="custom-range-label">Performance Agent context</span><div className="form-note v2-optional-note"><Icon name="check" size={16} /><span><strong>Optional.</strong> These fields unlock setup, behavior and exit-efficiency analytics from your own trades.</span></div>
-        <div className="form-row"><label>Setup name<input value={setupName} onChange={(event) => setSetupName(event.target.value)} maxLength={120} placeholder="e.g. London sweep reclaim" /></label><label>Emotional state<select value={emotionalState} onChange={(event) => setEmotionalState(event.target.value)}><option value="">Not recorded</option><option>Calm</option><option>Confident</option><option>Neutral</option><option>Anxious</option><option>Fearful</option><option>Frustrated</option><option>Excited</option><option>Revenge</option><option>FOMO</option></select></label></div>
-        <div className="form-row"><label>MAE (R) <span className="optional-label">Optional</span><input inputMode="decimal" value={maeR} onChange={(event) => setMaeR(event.target.value)} placeholder="Max adverse, e.g. 0.6" /></label><label>MFE (R) <span className="optional-label">Optional</span><input inputMode="decimal" value={mfeR} onChange={(event) => setMfeR(event.target.value)} placeholder="Max favorable, e.g. 2.1" /></label></div>
-        <div className="form-row"><label>Confluences<input value={confluences} onChange={(event) => setConfluences(event.target.value)} placeholder="Comma-separated, e.g. HTF trend, FVG" /></label><label>Rule breaks<input value={ruleBreaks} onChange={(event) => setRuleBreaks(event.target.value)} placeholder="Comma-separated, e.g. moved stop" /></label></div>
+        <div className="form-row"><label>Setup name<input value={setupName} onChange={(event) => setSetupName(event.target.value)} maxLength={120} placeholder="e.g. London sweep reclaim" />{fieldError("setup")}</label><label>Emotional state<select value={emotionalState} onChange={(event) => setEmotionalState(event.target.value)}><option value="">Not recorded</option><option>Calm</option><option>Confident</option><option>Neutral</option><option>Anxious</option><option>Fearful</option><option>Frustrated</option><option>Excited</option><option>Revenge</option><option>FOMO</option></select></label></div>
+        <div className="form-row"><label>MAE (R) <span className="optional-label">Optional</span><input inputMode="decimal" value={maeR} onChange={(event) => setMaeR(event.target.value)} placeholder="Max adverse, e.g. 0.6" />{fieldError("mae_r")}</label><label>MFE (R) <span className="optional-label">Optional</span><input inputMode="decimal" value={mfeR} onChange={(event) => setMfeR(event.target.value)} placeholder="Max favorable, e.g. 2.1" />{fieldError("mfe_r")}</label></div>
+        <div className="form-row"><label>Confluences<input value={confluences} onChange={(event) => setConfluences(event.target.value)} placeholder="Comma-separated, e.g. HTF trend, FVG" />{fieldError("confluences")}</label><label>Rule breaks<input value={ruleBreaks} onChange={(event) => setRuleBreaks(event.target.value)} placeholder="Comma-separated, e.g. moved stop" />{fieldError("rule_breaks")}</label></div>
       </div>
       <div className="journal-entry-fields"><span className="custom-range-label">Add a time-stamped journal update</span><div className="form-row"><label>How are you feeling now?<select value={emotion} onChange={(event) => setEmotion(event.target.value)}><option>Neutral</option><option>Calm</option><option>Confident</option><option>Anxious</option><option>Fearful</option><option>Frustrated</option><option>Excited</option><option>Other</option></select></label><label>What is happening?<textarea value={journalNote} onChange={(event) => setJournalNote(event.target.value)} placeholder="Describe your execution, emotion, or management decision..." rows={2} /></label></div></div>
       {(plan.journalEntries ?? []).length > 0 && <div className="journal-timeline"><span className="custom-range-label">Journal timeline</span>{plan.journalEntries?.slice().reverse().map((entry) => <article className="journal-timeline-entry" key={entry.id}><strong>{entry.stage} · {entry.emotion}</strong><time>{formatTradeDate(entry.date)}</time>{entry.note && <p>{entry.note}</p>}</article>)}</div>}
@@ -984,7 +1061,7 @@ function isWorkspace(value: unknown): value is SavedWorkspace {
   return validTrades && validReviews && validAccounts;
 }
 
-function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, accounts, viewIds, onToggleView, onClearView, onTimezoneChange, onQuickCapture, onNavigate, onReviewStart, onReportEvidenceOpen, onRecordFill, onManageTrade, onDiscardPlan, onOpenAccountSetup, onConnectAccount, onRevokeAccount, onDeleteAccount, onEditAccount, onExport, onImportCsv, onBulkStrategy }: { view: ViewId; trades: Trade[]; reviews: TradeReview[]; reviewedIds: string[]; timezone: string; dateRange: DashboardDateRange; accounts: AccountSetup[]; viewIds: string[]; onToggleView: (id: string) => void; onClearView: () => void; onTimezoneChange: (timezone: string) => void; onQuickCapture: () => void; onNavigate: (view: ViewId) => void; onReviewStart: (trade: Trade) => void; onReportEvidenceOpen: (tradeId: string) => void; onRecordFill: (trade: Trade) => void; onManageTrade: (trade: Trade) => void; onDiscardPlan: (tradeId: string) => void; onOpenAccountSetup: () => void; onConnectAccount: (account: AccountSetup) => void; onSyncAccount: (account: AccountSetup) => void; onRevokeAccount: (account: AccountSetup) => void; onDeleteAccount: (account: AccountSetup) => void; onEditAccount: (account: AccountSetup) => void; onRefreshAccount: (account: AccountSetup) => void; onExport: (trades: Trade[]) => void; onImportCsv: (file: File) => void; onBulkStrategy: (ids: string[], strategy: string) => Promise<void> }) {
+function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, accounts, viewIds, onToggleView, onClearView, onTimezoneChange, onQuickCapture, onNavigate, onReviewStart, onReportEvidenceOpen, onRecordFill, onManageTrade, onDiscardPlan, onOpenAccountSetup, onConnectAccount, onRevokeAccount, onDeleteAccount, onEditAccount, onExport, onImportCsv, onBulkStrategy, onBulkRemove }: { view: ViewId; trades: Trade[]; reviews: TradeReview[]; reviewedIds: string[]; timezone: string; dateRange: DashboardDateRange; accounts: AccountSetup[]; viewIds: string[]; onToggleView: (id: string) => void; onClearView: () => void; onTimezoneChange: (timezone: string) => void; onQuickCapture: () => void; onNavigate: (view: ViewId) => void; onReviewStart: (trade: Trade) => void; onReportEvidenceOpen: (tradeId: string) => void; onRecordFill: (trade: Trade) => void; onManageTrade: (trade: Trade) => void; onDiscardPlan: (tradeId: string) => void; onOpenAccountSetup: () => void; onConnectAccount: (account: AccountSetup) => void; onSyncAccount: (account: AccountSetup) => void; onRevokeAccount: (account: AccountSetup) => void; onDeleteAccount: (account: AccountSetup) => void; onEditAccount: (account: AccountSetup) => void; onRefreshAccount: (account: AccountSetup) => void; onExport: (trades: Trade[]) => void; onImportCsv: (file: File) => void; onBulkRemove: (ids: string[], mode: "delete" | "clear") => Promise<void>; onBulkStrategy: (ids: string[], strategy: string) => Promise<void> }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [bulkStrategy, setBulkStrategy] = useState("");
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -1005,7 +1082,13 @@ function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, 
       <section className="panel">
         <div className="panel-heading journal-toolbar"><div><span className="eyebrow">EXECUTION RECORD</span><h2>All trades</h2><p>Terminal facts and your notes stay distinct.</p></div><div className="toolbar-actions"><label className="button button-outline file-button"><Icon name="upload" size={16} /> Import CSV<input type="file" accept=".csv,text/csv" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportCsv(file); event.currentTarget.value = ""; }} /></label><button className="button button-outline" onClick={() => onExport(filteredTrades)}><Icon name="upload" size={16} /> Export CSV</button><button className="button button-primary" onClick={onQuickCapture}><Icon name="plus" size={17} /> New plan</button></div></div>
         <div className="table-controls"><label className="search-field"><Icon name="search" size={17} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search symbol or strategy" /></label><label className="select-control"><Icon name="filter" size={17} /><select value={filter} onChange={(event) => setFilter(event.target.value)}><option>All trades</option><option>Win</option><option>Loss</option><option>Flat</option><option>Open</option><option>Planned</option><option>Discarded</option></select></label></div>
-        {selected.length > 0 && <BulkBar trades={trades.filter((trade) => selected.includes(trade.id))} strategy={bulkStrategy} busy={bulkBusy} askOpen={askOpen} onStrategy={setBulkStrategy} onAsk={() => setAskOpen((open) => !open)} onClear={() => setSelected([])} onApply={async () => { setBulkBusy(true); await onBulkStrategy(selected, bulkStrategy.trim()); setBulkBusy(false); setBulkStrategy(""); setSelected([]); }} />}
+        {selected.length > 0 && <BulkBar trades={trades.filter((trade) => selected.includes(trade.id))} strategy={bulkStrategy} busy={bulkBusy} askOpen={askOpen} onStrategy={setBulkStrategy} onAsk={() => setAskOpen((open) => !open)} onClear={() => setSelected([])} onApply={async () => { setBulkBusy(true); await onBulkStrategy(selected, bulkStrategy.trim()); setBulkBusy(false); setBulkStrategy(""); setSelected([]); }} onRemove={async (mode) => {
+          const removable = trades.filter((trade) => selected.includes(trade.id) && trade.outcome !== "Planned" && trade.outcome !== "Discarded");
+          if (!removable.length) return;
+          const message = mode === "delete" ? `Permanently delete ${removable.length} trade(s)? This cannot be undone. Broker-synced trades are kept and only their journal is cleared.` : `Clear the journal notes, review and tags on ${removable.length} trade(s)? This cannot be undone.`;
+          if (!window.confirm(message)) return;
+          setBulkBusy(true); await onBulkRemove(removable.map((trade) => trade.id), mode); setBulkBusy(false); setSelected([]);
+        }} />}
         <TradeTable trades={filteredTrades} onManageTrade={onManageTrade} selected={selected} onToggleSelect={(id) => setSelected((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])} />
       </section>
     </div>;
@@ -1035,6 +1118,7 @@ function ViewContent({ view, trades, reviews, reviewedIds, timezone, dateRange, 
   }
   if (view === "execution") return <ExecutionLab trades={trades.filter((trade) => matchesDateRange(trade.date, dateRange))} />;
   if (view === "reports") return <ReportsPage accountId={viewIds.length === 1 ? viewIds[0] : null} timezone={timezone} onOpenTrade={onReportEvidenceOpen} />;
+  if (view === "agent") return <AgentPage accountId={viewIds.length === 1 ? viewIds[0] : null} dateRange={dateRange} timezone={timezone} />;
   if (view === "intelligence") {
     const closedR = trades.filter((trade) => matchesDateRange(trade.date, dateRange)).flatMap((trade) => trade.rMultiple === null ? [] : [trade.rMultiple]);
     return <IntelligencePage accountId={viewIds.length === 1 ? viewIds[0] : null} dateRange={dateRange} timezone={timezone} rValues={closedR} />;
@@ -1466,9 +1550,9 @@ function DeleteAccountModal({ account, onClose, onConfirm }: { account: AccountS
 }
 
 function ReviewModal({ trade, existingReview, onClose, onSave }: { trade: Trade; existingReview?: TradeReview; onClose: () => void; onSave: (review: TradeReview) => void }) {
-  const [matchedPlan, setMatchedPlan] = useState<"yes" | "partly" | "no" | "">(existingReview?.planAdherence ?? "");
-  const [learning, setLearning] = useState(existingReview?.learning ?? "");
-  const [nextAction, setNextAction] = useState(existingReview?.nextAction ?? "");
+  const [matchedPlan, setMatchedPlan] = useDraftState<"yes" | "partly" | "no" | "">(`review.${trade.id}`, "matchedPlan", existingReview?.planAdherence ?? "");
+  const [learning, setLearning] = useDraftState(`review.${trade.id}`, "learning", existingReview?.learning ?? "");
+  const [nextAction, setNextAction] = useDraftState(`review.${trade.id}`, "nextAction", existingReview?.nextAction ?? "");
   const [error, setError] = useState("");
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -1566,6 +1650,7 @@ export default function Home() {
   const [activeReview, setActiveReview] = useState<Trade | null>(null);
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
+  const [fillErrors, setFillErrors] = useState<Record<string, string>>({});
   const currentView = viewCopy[view];
   const pendingReviewCount = trades.filter((trade) =>
     (trade.outcome === "Win" || trade.outcome === "Loss" || trade.outcome === "Flat") && !reviewedIds.includes(trade.id),
@@ -1768,6 +1853,7 @@ export default function Home() {
       });
       const mapped = mapApiPlan(saved);
       setTrades((current) => [mapped, ...current]);
+      clearDrafts("capture");
       setCaptureOpen(false);
       setView("plans");
       setNotice(`${trade.symbol} plan saved to your TradeIQ account. It is not an executed trade.`);
@@ -1779,6 +1865,7 @@ export default function Home() {
 
   async function recordFill(executedTrade: Trade) {
     setActionError("");
+    setFillErrors({});
     try {
       const isPlan = activePlan?.outcome === "Planned";
       const existing = isPlan ? null : activePlan;
@@ -1818,9 +1905,9 @@ export default function Home() {
               ...v2Context(executedTrade),
               stop_loss: executedTrade.stopLoss,
               take_profit: executedTrade.takeProfit,
-              opened_at: executedTrade.date,
+              opened_at: utcTimestamp(executedTrade.date),
               closed_at: ["Win", "Loss", "Flat"].includes(executedTrade.outcome)
-                ? new Date().toISOString()
+                ? new Date(Math.max(Date.now(), Date.parse(utcTimestamp(executedTrade.date)))).toISOString()
                 : null,
             }),
           })
@@ -1852,11 +1939,39 @@ export default function Home() {
         mapped,
         ...current.filter((trade) => trade.id !== (existing?.id ?? activePlan?.id)),
       ]);
+      clearDrafts(`exec.${executedTrade.id}`);
       setActivePlan(null);
       setNotice(`${executedTrade.symbol} journal update saved to your TradeIQ account.`);
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : "Could not save the trade journal.");
+      const fields = apiFieldErrors(error);
+      if (fields) setFillErrors(fields);
+      else setActionError(error instanceof Error ? error.message : "Could not save the trade journal.");
     }
+    window.setTimeout(() => setNotice(""), 5000);
+  }
+
+  async function bulkRemove(ids: string[], mode: "delete" | "clear") {
+    setActionError("");
+    const target = new Map(trades.map((trade) => [trade.id, trade]));
+    const results = await Promise.allSettled(ids.map((id) => {
+      const brokerSynced = target.get(id)?.source === "mt5";
+      if (mode === "delete" && !brokerSynced) return apiRequest<void>(`/trades/${id}`, { method: "DELETE" }).then(() => "deleted" as const);
+      return apiRequest<ApiTrade>(`/trades/${id}/journal`, { method: "DELETE" }).then(() => "cleared" as const);
+    }));
+    const deleted = new Set<string>();
+    const cleared = new Set<string>();
+    results.forEach((result, index) => {
+      if (result.status !== "fulfilled") return;
+      (result.value === "deleted" ? deleted : cleared).add(ids[index]);
+    });
+    setTrades((current) => current.filter((trade) => !deleted.has(trade.id)).map((trade) => cleared.has(trade.id)
+      ? { ...trade, strategy: "Uncategorized", setupNotes: "", setupEmotion: "", setupName: undefined, emotionalState: null, confluences: [], ruleBreaks: [], maeR: null, mfeR: null, journalEntries: [] }
+      : trade));
+    setReviews((current) => current.filter((review) => !deleted.has(review.tradeId) && !cleared.has(review.tradeId)));
+    const failed = ids.length - deleted.size - cleared.size;
+    const parts = [deleted.size ? `Deleted ${deleted.size} trade${deleted.size === 1 ? "" : "s"}` : "", cleared.size ? `cleared the journal on ${cleared.size}` : ""].filter(Boolean).join(" and ");
+    if (failed) setActionError(`${failed} trade${failed === 1 ? "" : "s"} could not be updated.`);
+    setNotice(parts ? `${parts}.` : "Nothing was changed.");
     window.setTimeout(() => setNotice(""), 5000);
   }
 
@@ -2083,6 +2198,7 @@ export default function Home() {
         }),
       });
       setReviews((current) => [...current.filter((item) => item.tradeId !== review.tradeId), review]);
+      clearDrafts(`review.${review.tradeId}`);
       setActiveReview(null);
       setNotice("Review saved to your TradeIQ account.");
     } catch (error) {
@@ -2286,11 +2402,11 @@ export default function Home() {
               }).catch(() => undefined);
             }}
           />
-          <ViewContent key={view} view={view} trades={trades} reviews={reviews} reviewedIds={reviewedIds} timezone={timezone} dateRange={dateRange} accounts={accounts} viewIds={scopeIds} onToggleView={toggleView} onClearView={() => saveView([])} onTimezoneChange={(value) => void updateTimezone(value)} onQuickCapture={() => setCaptureOpen(true)} onNavigate={setView} onReviewStart={setActiveReview} onReportEvidenceOpen={(tradeId) => void openReportEvidence(tradeId)} onRecordFill={setActivePlan} onManageTrade={setActivePlan} onDiscardPlan={discardPlan} onOpenAccountSetup={() => setAccountSetupOpen(true)} onConnectAccount={connectAccount} onSyncAccount={syncAccount} onRevokeAccount={revokeAccount} onDeleteAccount={setDeletingAccount} onEditAccount={setEditingAccount} onRefreshAccount={refreshAccount} onExport={exportVisibleTrades} onImportCsv={(file) => void importCsvFile(file)} onBulkStrategy={bulkStrategy} />
+          <ViewContent key={view} view={view} trades={trades} reviews={reviews} reviewedIds={reviewedIds} timezone={timezone} dateRange={dateRange} accounts={accounts} viewIds={scopeIds} onToggleView={toggleView} onClearView={() => saveView([])} onTimezoneChange={(value) => void updateTimezone(value)} onQuickCapture={() => setCaptureOpen(true)} onNavigate={setView} onReviewStart={setActiveReview} onReportEvidenceOpen={(tradeId) => void openReportEvidence(tradeId)} onRecordFill={setActivePlan} onManageTrade={setActivePlan} onDiscardPlan={discardPlan} onOpenAccountSetup={() => setAccountSetupOpen(true)} onConnectAccount={connectAccount} onSyncAccount={syncAccount} onRevokeAccount={revokeAccount} onDeleteAccount={setDeletingAccount} onEditAccount={setEditingAccount} onRefreshAccount={refreshAccount} onExport={exportVisibleTrades} onImportCsv={(file) => void importCsvFile(file)} onBulkRemove={bulkRemove} onBulkStrategy={bulkStrategy} />
         </div>
       </main>
       {captureOpen && <QuickCaptureModal onClose={() => setCaptureOpen(false)} onSave={savePlan} />}
-      {activePlan && <ExecutionModal key={activePlan.id} plan={activePlan} onClose={() => setActivePlan(null)} onSave={recordFill} />}
+      {activePlan && <ExecutionModal key={activePlan.id} plan={activePlan} serverErrors={fillErrors} onClose={() => { setActivePlan(null); setFillErrors({}); }} onSave={recordFill} />}
       {activeReview && <ReviewModal key={activeReview.id} trade={activeReview} existingReview={reviews.find((review) => review.tradeId === activeReview.id)} onClose={() => setActiveReview(null)} onSave={completeReview} />}
       {accountSetupOpen && <AccountSetupModal method={mt5Method} onClose={() => setAccountSetupOpen(false)} onSave={saveAccountSetup} />}
       {editingAccount && <EditAccountModal account={editingAccount} onClose={() => setEditingAccount(null)} onSave={renameAccount} />}

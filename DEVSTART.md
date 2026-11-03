@@ -42,7 +42,7 @@ npm run dev
 ```
 
 `npm ci` is needed for the initial setup (and again after frontend dependency changes).
-Then open [http://localhost:3000](http://localhost:3000).
+Then open [http://localhost:3100](http://localhost:3100). The dev server listens on all interfaces on port 3100 (ports 3000/3001 are often taken by MetaTrader's strategy tester); to open it from another device, add that device's host to `allowedDevOrigins` in `web/next.config.ts`.
 
 ## Stop the services
 
@@ -54,7 +54,7 @@ from `backend/`, run `docker compose up --build`.
 ## MT5 methods and admin
 
 - Two MT5 methods: **MetaApi** (hosted, needs `METAAPI_TOKEN`) and **EA** (MQL5 Expert Advisor pushes to a per-account webhook; `backend/ea/TradeIQ_Journal.mq5`, also served at `/TradeIQ_Journal.mq5`).
-- Clients no longer set the EA up by hand: after Connect, the wizard offers a personal one-click installer (`TradeIQ-Setup.command` for Mac, `TradeIQ-Setup.bat` for Windows, served by `/api/v1/mt5/ea/<id>/<secret>/installer/<os>`). It installs and compiles the EA, writes the settings, starts the bridge as a background service and relaunches MT5.
+- Clients no longer set the EA up by hand: after Connect, the wizard offers a personal one-click installer (on Mac a copy-paste Terminal command, `bash <(curl -fsSL '<installer url>')`, which avoids the Gatekeeper "unidentified developer" block that a downloaded `.command` file triggers; `TradeIQ-Setup.bat` for Windows; served by `/api/v1/mt5/ea/<id>/<secret>/installer/<os>`). It installs and compiles the EA, writes the settings, starts the bridge as a background service and relaunches MT5.
 - If MT5 rejects WebRequest (error 4014), set the EA input `UseFileBridge=true` and run `python backend/ea/bridge.py "<MT5 data folder>/MQL5/Files" "<webhook url>"`; the bridge forwards the EA's files to the webhook.
 - The EA installer checks that `PUBLIC_API_URL/readyz` is reachable before changing MT5. `localhost` only works when MT5 and the API run on the same machine. For a Windows MT5 host on the same LAN as this Mac, set `PUBLIC_API_URL=http://<Mac-LAN-IP>:8000` in `backend/.env`, reserve that IP in the router, and allow inbound TCP 8000 through the Mac firewall. From Windows, verify `Invoke-WebRequest http://<Mac-LAN-IP>:8000/readyz` returns `ready` before running the installer. For remote users, use a stable, publicly reachable HTTPS API domain.
 - After changing `PUBLIC_API_URL`, restart the backend and rerun the one-click installer on each MT5 host so both the EA and background bridge use the new URL. EA v1.12 sends account state before importing history; the Accounts status should update within seconds. Confirm MT5 shows TradeIQ_Journal 1.12 on a chart.
@@ -69,6 +69,7 @@ from `backend/`, run `docker compose up --build`.
 - Any account logged into that MT5 terminal is reported to `/api/v1/mt5/device/{user}/{secret}` and shows a **Connect account / Not now** prompt (`GET /devices/detected`). Connecting requires re-entering the account login and server, which must match.
 - The top-bar **Account** switcher scopes trades, plans, reviews and overview balance/equity to one account (`?account_id=`), or **All accounts**. The choice is remembered in the browser.
 - Plans now carry `account_id` (migration `a9b3d6e2f410`; run `alembic upgrade head`).
+- **TradeIQ Agent** (sidebar, `POST /api/v1/agent/run`, `PATCH /api/v1/agent/insights/{id}`): rule-based, per-user analysis; needs migration `e5a2c8f31b76` (`alembic upgrade head`). Findings appear after ~20+ trades with recorded R.
 - Set a public HTTPS `PUBLIC_API_URL` for real users; the EA must be recompiled after updating (`backend/ea/TradeIQ_Journal.mq5`).
 
 ### Install once, add accounts freely

@@ -329,8 +329,8 @@ class TradeCreate(BaseModel):
     @classmethod
     def normalize_trade_labels(cls, values: list[str]) -> list[str]:
         normalized = list(dict.fromkeys(value.strip() for value in values))
-        if any(not value or len(value) > 64 for value in normalized):
-            raise ValueError("Labels must contain 1 to 64 characters")
+        if any(not value or len(value) > 120 for value in normalized):
+            raise ValueError("Each label must be 1 to 120 characters")
         return normalized
 
     @model_validator(mode="after")
@@ -401,7 +401,7 @@ class TradeUpdate(BaseModel):
         if values is None:
             return None
         normalized = list(dict.fromkeys(value.strip() for value in values))
-        if any(not value or len(value) > 64 for value in normalized):
+        if any(not value or len(value) > 120 for value in normalized):
             raise ValueError("Labels must contain 1 to 64 characters")
         return normalized
 
@@ -447,6 +447,7 @@ class TradeRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     tags: list[str] = Field(default_factory=list)
+    journaled: bool = False
 
 
 class TradeList(BaseModel):

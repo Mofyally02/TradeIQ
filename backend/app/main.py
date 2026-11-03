@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api import (
     accounts,
     admin,
+    agent,
     auth,
     dashboard,
     development,
@@ -70,6 +71,7 @@ app.include_router(accounts.router, prefix="/api/v1")
 app.include_router(trades.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(performance.router, prefix="/api/v1")
+app.include_router(agent.router, prefix="/api/v1")
 app.include_router(risk.router, prefix="/api/v1")
 app.include_router(integrations.router, prefix="/api/v1")
 app.include_router(mt5_connector.router, prefix="/api/v1")
